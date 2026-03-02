@@ -473,10 +473,10 @@ exclude .fseventsd
         execFileSync('sudo', ['mergerfs', '-o', mergerfsOpts, mergerfsSource, POOL_MOUNT], { encoding: 'utf8', timeout: 60000 });
         results.push(`MergerFS pool mounted at ${POOL_MOUNT}`);
 
-        // Set permissions
+        // Set permissions (top-level only, -R is dangerous if mount fails)
         try {
-            execFileSync('sudo', ['chown', '-R', ':sambashare', POOL_MOUNT], { encoding: 'utf8', timeout: 60000 });
-            execFileSync('sudo', ['chmod', '-R', '2775', POOL_MOUNT], { encoding: 'utf8', timeout: 60000 });
+            execFileSync('sudo', ['chown', ':sambashare', POOL_MOUNT], { encoding: 'utf8', timeout: 60000 });
+            execFileSync('sudo', ['chmod', '2775', POOL_MOUNT], { encoding: 'utf8', timeout: 60000 });
             results.push('Samba permissions configured');
         } catch (e) {
             results.push('Warning: Could not set Samba permissions');

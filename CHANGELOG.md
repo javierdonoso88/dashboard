@@ -3,6 +3,14 @@
 All notable changes to HomePiNAS are documented in this file.
 
 ## [2.10.5] - 2026-03-02
+## [2.10.6] - 2026-03-02
+
+### Fixed
+- **CRITICAL: sudo broken after setup** — `chown -R :sambashare` and `chmod -R 2775` on `/mnt/storage` propagated to entire filesystem when pool wasn't mounted, breaking sudo permissions on `/usr/bin/sudo` and `/etc/` (auth.js, storage.js)
+- Now checks mountpoint before setting permissions, and never uses `-R` flag
+
+---
+
 
 ### Merged
 - **Full sync main ↔ develop** — All 421 commits from develop merged into main

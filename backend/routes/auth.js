@@ -90,10 +90,11 @@ async function createSambaUser(username, password) {
         // Enable the Samba user
         execFileSync('sudo', ['smbpasswd', '-e', safeUsername], { encoding: 'utf8' });
 
-        // Set ownership of storage pool directory
+        // Set ownership of storage pool directory (ONLY if mergerfs pool is mounted)
         try {
-            execFileSync('sudo', ['chown', '-R', `${safeUsername}:sambashare`, '/mnt/storage'], { encoding: 'utf8' });
-            execFileSync('sudo', ['chmod', '-R', '2775', '/mnt/storage'], { encoding: 'utf8' });
+            const mountCheck = execFileSync('mountpoint', ['-q', '/mnt/storage'], { encoding: 'utf8' });
+            execFileSync('sudo', ['chown', `${safeUsername}:sambashare`, '/mnt/storage'], { encoding: 'utf8' });
+            execFileSync('sudo', ['chmod', '2775', '/mnt/storage'], { encoding: 'utf8' });
         } catch (e) {}
 
         // Restart Samba
