@@ -2,6 +2,27 @@
 
 All notable changes to HomePiNAS are documented in this file.
 
+## [2.10.5] - 2026-03-02
+
+### Merged
+- **Full sync main ↔ develop** — All 421 commits from develop merged into main
+- Includes all fixes from v2.9.10 (issues #1-#9)
+- Active Backup styles and UI improvements
+- APP_VERSION fix in install.sh (no more collision with /etc/os-release)
+
+### Added
+- **HomeStore enhancements** — External Docker app detection (#6)
+- **SMART tests** — View and relaunch SMART diagnostics (#8)
+- **WireGuard** — Public key included in client export (#7)
+
+### Fixed
+- **Logs** — Duplicate filter boxes and broken search (#1, #2)
+- **Header** — Notification icon and user menu functional (#3, #4)
+- **File Manager** — Folder tree refresh on new directory (#5)
+- **Terminal** — Better error handling for disconnected shortcuts (#9)
+
+---
+
 ## [2.9.10] - 2026-03-01
 
 ### Fixed

@@ -1,8 +1,8 @@
-# HomePiNAS v2.9.10
+# HomePiNAS v2.10.5
 
 Premium NAS Dashboard for Raspberry Pi CM5 - Homelabs.club Edition
 
-![HomePiNAS Dashboard](https://img.shields.io/badge/version-2.9.10-brightgreen)
+![HomePiNAS Dashboard](https://img.shields.io/badge/version-2.10.5-brightgreen)
 ![PWA Ready](https://img.shields.io/badge/PWA-Ready-blueviolet)
 ![Mobile Friendly](https://img.shields.io/badge/Mobile-Friendly-blue)
 
@@ -67,7 +67,7 @@ Premium NAS Dashboard for Raspberry Pi CM5 - Homelabs.club Edition
 - HTTPS with self-signed certificates
 - 2FA (TOTP) support
 
-## 🆕 What's New in v2.9.10
+## 🆕 What's New in v2.10.5
 
 ### UI/UX Improvements
 - **🔔 Notification Center** — Functional notification center with modal interface
