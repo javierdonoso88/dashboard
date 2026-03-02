@@ -128,14 +128,16 @@ router.get('/agent/poll', (req, res) => {
     },
     lastBackup: device.lastBackup,
     lastResult: device.lastResult,
+    backupStatus: device.backupStatus || null,
   };
 
   // Include Samba config for image backups (credentials only sent once on first poll after approval)
   if (device.backupType === 'image' && device.sambaShare) {
     response.config.sambaShare = device.sambaShare;
+    response.config.backupDir = (device.name || device.id).replace(/[^a-zA-Z0-9_.-]/g, '_');
     response.config.nasAddress = getLocalIPs()[0] || req.hostname;
     // Only send credentials if agent hasn't received them yet
-    if (!device._credentialsSent) {
+    if (true) { // Always send credentials — agent may have reset config
       response.config.sambaUser = device.sambaUser || '';
       response.config.sambaPass = device.sambaPass || '';
       device._credentialsSent = true;
@@ -151,6 +153,13 @@ router.get('/agent/poll', (req, res) => {
     saveData(data);
   }
 
+  // Update last seen timestamp (throttled to avoid excessive writes)
+  const now = new Date().toISOString();
+  const lastSeenAge = device.lastSeen ? (Date.now() - new Date(device.lastSeen).getTime()) : Infinity;
+  if (lastSeenAge > 30000) { // Only save if >30s since last update
+    device.lastSeen = now;
+    saveData(data);
+  }
   res.json(response);
 });
 
@@ -172,6 +181,8 @@ router.post('/agent/report', (req, res) => {
 
   device.lastBackup = new Date().toISOString();
   device.lastResult = status === 'success' ? 'success' : 'failed';
+  device.backupStatus = null;
+  device.backupStarted = null;
   device.lastError = status === 'success' ? null : (errorMsg || 'Unknown error');
   device.lastDuration = duration || null;
 
@@ -214,9 +225,19 @@ async function ensureSSHKey() {
 }
 
 // ── Helper: get device backup dir ──
-function deviceDir(deviceId) {
-  // Sanitize deviceId
-  const safe = deviceId.replace(/[^a-zA-Z0-9_-]/g, '');
+function deviceDir(deviceIdOrName) {
+  // Sanitize to safe filesystem name
+  const safe = deviceIdOrName.replace(/[^a-zA-Z0-9_.-]/g, '_');
+  return path.join(BACKUP_BASE, safe);
+}
+
+/**
+ * Get backup directory for a device - prefers hostname for readability
+ * Falls back to deviceId if hostname not available
+ */
+function deviceBackupDir(device) {
+  const name = (device.name || device.id || '').trim();
+  const safe = name.replace(/[^a-zA-Z0-9_.-]/g, '_');
   return path.join(BACKUP_BASE, safe);
 }
 
@@ -335,7 +356,7 @@ async function ensureSambaUser(username, password) {
 
 async function createImageBackupShare(device, username) {
   const shareName = device.sambaShare;
-  const sharePath = deviceDir(device.id);
+  const sharePath = deviceBackupDir(device);
   const sambaUser = username || 'homepinas';
   
   // Ensure directory exists with right permissions
@@ -351,7 +372,7 @@ async function createImageBackupShare(device, username) {
 
   // Add share to smb.conf with the actual user
   const smbConfPath = '/etc/samba/smb.conf';
-  const shareBlock = `\n[${shareName}]\n   path = ${sharePath}\n   browseable = no\n   writable = yes\n   guest ok = no\n   valid users = ${sambaUser}\n   create mask = 0660\n   directory mask = 0770\n   comment = HomePiNAS Image Backup - ${device.name}\n`;
+  const shareBlock = `\n[${shareName}]\n   path = ${sharePath}\n   browseable = no\n   writable = yes\n   guest ok = no\n   valid users = ${sambaUser} ${username}\n   create mask = 0664\n   directory mask = 0775\n   force group = sambashare\n   comment = HomePiNAS Image Backup - ${device.name}\n`;
 
   try {
     const currentConf = fs.readFileSync(smbConfPath, 'utf8');
@@ -440,21 +461,32 @@ function getImageFiles(deviceId) {
   
   return fs.readdirSync(dir)
     .filter(f => {
-      const ext = f.toLowerCase();
-      return ext.endsWith('.vhd') || ext.endsWith('.vhdx') || ext.endsWith('.img') || 
-             ext.endsWith('.img.gz') || ext.endsWith('.pcl.gz') || ext.endsWith('.xml') ||
-             f === 'WindowsImageBackup' || f.startsWith('backup-');
+      const fPath = path.join(dir, f);
+      try {
+        const stat = fs.statSync(fPath);
+        if (stat.isDirectory()) {
+          // Date-stamped backup folders (2026-02-24_23-09) or legacy formats
+          return /^\d{4}-\d{2}-\d{2}/.test(f) || f === 'WIMBackup' || f.startsWith('backup-');
+        }
+        // Loose image files
+        const ext = f.toLowerCase();
+        return ext.endsWith('.wim') || ext.endsWith('.vhd') || ext.endsWith('.vhdx') || 
+               ext.endsWith('.img') || ext.endsWith('.img.gz');
+      } catch(e) { return false; }
     })
     .map(f => {
       const fPath = path.join(dir, f);
-      const stat = fs.statSync(fPath);
-      return {
-        name: f,
-        size: stat.isDirectory() ? getDirSize(fPath) : stat.size,
-        modified: stat.mtime,
-        type: stat.isDirectory() ? 'directory' : 'file',
-      };
+      try {
+        const stat = fs.statSync(fPath);
+        return {
+          name: f,
+          size: stat.isDirectory() ? getDirSize(fPath) : stat.size,
+          modified: stat.mtime,
+          type: stat.isDirectory() ? 'directory' : 'file',
+        };
+      } catch(e) { return null; }
     })
+    .filter(Boolean)
     .sort((a, b) => new Date(b.modified) - new Date(a.modified));
 }
 
@@ -470,11 +502,11 @@ router.get('/devices', (req, res) => {
   const ab = data.activeBackup || { devices: [] };
   
   const devices = ab.devices.map(d => {
-    const dir = deviceDir(d.id);
+    const dir = deviceBackupDir(d);
     const isImage = d.backupType === 'image';
     
     if (isImage) {
-      const images = getImageFiles(d.id);
+      const images = getImageFiles(d.name || d.id);
       return {
         ...d,
         backupCount: images.length,
@@ -482,7 +514,7 @@ router.get('/devices', (req, res) => {
         images,
       };
     } else {
-      const versions = getVersions(d.id);
+      const versions = getVersions(d.name || d.id);
       return {
         ...d,
         backupCount: versions.length,
@@ -508,8 +540,8 @@ router.get('/devices/:id/images', (req, res) => {
   const device = data.activeBackup.devices.find(d => d.id === req.params.id);
   if (!device) return res.status(404).json({ error: 'Device not found' });
   
-  const images = getImageFiles(device.id);
-  const dir = deviceDir(device.id);
+  const images = getImageFiles(device.name || device.id);
+  const dir = deviceBackupDir(device);
   
   // Also list WindowsImageBackup subdirectories
   const wibPath = path.join(dir, 'WindowsImageBackup');
@@ -614,7 +646,7 @@ router.post('/devices', async (req, res) => {
     saveData(data);
 
     // Create device backup directory
-    const dir = deviceDir(deviceId);
+    const dir = deviceDir(device.name || deviceId);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
     // For image backups: create a Samba share for this device
@@ -654,6 +686,9 @@ router.post('/devices', async (req, res) => {
       response.setupInstructions = `En el equipo "${name}" (${ip}), ejecuta:\n\nmkdir -p ~/.ssh && echo '${pubKey}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys`;
     }
 
+  // Update last seen timestamp
+  device.lastSeen = new Date().toISOString();
+  saveData(data);
     res.json(response);
   } catch (err) {
     console.error('Add device error:', err);
@@ -698,7 +733,7 @@ router.delete('/devices/:id', (req, res) => {
 
   // Delete backup data if requested
   if (req.query.deleteData === 'true') {
-    const dir = deviceDir(req.params.id);
+    const dir = deviceDir(device ? device.name : req.params.id);
     if (fs.existsSync(dir)) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -778,12 +813,12 @@ async function runBackup(device) {
   const backupState = { startedAt: new Date().toISOString(), output: '' };
   runningBackups.set(device.id, backupState);
 
-  const dir = deviceDir(device.id);
+  const dir = deviceBackupDir(device);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-  const vNum = nextVersion(device.id);
+  const vNum = nextVersion(device.name || device.id);
   const vDir = path.join(dir, `v${vNum}`);
-  const versions = getVersions(device.id);
+  const versions = getVersions(device.name || device.id);
   const prevDir = versions.length > 0 ? path.join(dir, versions[versions.length - 1]) : null;
 
   try {
@@ -890,8 +925,8 @@ async function runBackup(device) {
  * GET /devices/:id/versions - List backup versions
  */
 router.get('/devices/:id/versions', (req, res) => {
-  const versions = getVersions(req.params.id);
-  const dir = deviceDir(req.params.id);
+  const versions = getVersions(((getData()).activeBackup.devices.find(d => d.id === req.params.id) || {}).name || req.params.id);
+  const dir = deviceDir(((data || getData()).activeBackup.devices.find(d => d.id === req.params.id) || {}).name || req.params.id);
 
   const result = versions.map(v => {
     const vPath = path.join(dir, v);
@@ -911,30 +946,31 @@ router.get('/devices/:id/versions', (req, res) => {
  * Browse files inside a specific backup version
  */
 router.get('/devices/:id/browse', (req, res) => {
-  const version = req.query.version || 'latest';
+  const data2 = getData();
+  const device2 = (data2.activeBackup || {devices:[]}).devices.find(d => d.id === req.params.id);
+  const devDir = device2 ? deviceBackupDir(device2) : path.join(BACKUP_BASE, req.params.id.replace(/[^a-zA-Z0-9_-]/g, ''));
+  
+  const version = req.query.version;
   const browsePath = req.query.path || '/';
 
-  const safe = (req.params.id).replace(/[^a-zA-Z0-9_-]/g, '');
-  const safeVersion = version.replace(/[^a-zA-Z0-9_.-]/g, '');
-
-  let basePath = path.join(BACKUP_BASE, safe, safeVersion);
-
-  // Resolve 'latest' symlink
-  if (safeVersion === 'latest') {
+  let basePath;
+  if (version && version !== 'latest') {
+    basePath = path.join(devDir, version.replace(/[^a-zA-Z0-9_.-]/g, ''));
+  } else if (version === 'latest') {
     try {
-      const target = fs.readlinkSync(basePath);
-      basePath = path.join(BACKUP_BASE, safe, target);
+      const target = fs.readlinkSync(path.join(devDir, 'latest'));
+      basePath = path.join(devDir, target);
     } catch(e) {
-      return res.status(404).json({ error: 'No backups available' });
+      basePath = devDir;
     }
+  } else {
+    basePath = devDir;
   }
 
-  // Navigate into the requested path
   const cleanPath = browsePath.replace(/\0/g, '').replace(/^\/+/, '');
   const fullPath = path.resolve(basePath, cleanPath);
 
-  // Security: ensure we're still inside the backup dir
-  if (!fullPath.startsWith(path.resolve(BACKUP_BASE, safe))) {
+  if (!fullPath.startsWith(path.resolve(devDir))) {
     return res.status(403).json({ error: 'Access denied' });
   }
 
@@ -968,15 +1004,15 @@ router.get('/devices/:id/browse', (req, res) => {
     res.json({
       success: true,
       path: browsePath,
-      version: safeVersion,
-      items: items.sort((a, b) => {
+      version: version || null,
+      files: items.sort((a, b) => {
         if (a.type === 'directory' && b.type !== 'directory') return -1;
         if (a.type !== 'directory' && b.type === 'directory') return 1;
         return a.name.localeCompare(b.name);
       }),
     });
   } catch(err) {
-    res.status(500).json({ error: 'Failed to browse directory' });
+    console.error("Browse error:", err.message, "devDir:", typeof devDir !== "undefined" ? devDir : "N/A"); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1350,9 +1386,47 @@ router.post('/devices/:id/trigger', (req, res) => {
   }
 
   device._triggerBackup = true;
+  device.backupStatus = 'running';
+  device.backupStarted = new Date().toISOString();
   saveData(data);
 
   res.json({ success: true, message: `Backup triggered for "${device.name}". Agent will start on next poll.` });
 });
+
+
+/**
+ * DELETE /devices/:id/images/:name - Delete a specific backup
+ */
+router.delete('/devices/:id/images/:name', (req, res) => {
+  const data = getData();
+  if (!data.activeBackup) return res.status(404).json({ error: 'Not configured' });
+
+  const device = data.activeBackup.devices.find(d => d.id === req.params.id);
+  if (!device) return res.status(404).json({ error: 'Device not found' });
+
+  const backupName = req.params.name.replace(/[^a-zA-Z0-9_.\-TZ]/g, '');
+  if (!backupName) return res.status(400).json({ error: 'Invalid backup name' });
+
+  const dir = deviceBackupDir(device);
+  const targetPath = path.join(dir, backupName);
+
+  // Security: ensure target is inside the device dir
+  if (!targetPath.startsWith(dir)) {
+    return res.status(400).json({ error: 'Invalid path' });
+  }
+
+  if (!fs.existsSync(targetPath)) {
+    return res.status(404).json({ error: 'Backup not found' });
+  }
+
+  try {
+    fs.rmSync(targetPath, { recursive: true, force: true });
+    logSecurityEvent('active_backup_image_deleted', req.user.username, { device: device.name, backup: backupName });
+    res.json({ success: true, message: `Backup "${backupName}" eliminado` });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al eliminar: ' + e.message });
+  }
+});
+
 
 module.exports = router;
