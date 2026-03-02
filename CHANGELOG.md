@@ -4,6 +4,15 @@ All notable changes to HomePiNAS are documented in this file.
 
 ## [2.10.5] - 2026-03-02
 ## [2.10.6] - 2026-03-02
+## [2.10.7] - 2026-03-02
+
+### Fixed
+- **CRITICAL: remove ALL `-R` flags from chown/chmod sambashare** — Recursive permission changes could destroy system when pool not mounted (active-backup.js, install.sh sudoers)
+- Sudoers now allows chown/chmod only on `/mnt/storage` and `/mnt/storage/*` (no recursive)
+- active-backup share creation uses setgid (2775) on top dir only
+
+---
+
 
 ### Fixed
 - **CRITICAL: sudo broken after setup** — `chown -R :sambashare` and `chmod -R 2775` on `/mnt/storage` propagated to entire filesystem when pool wasn't mounted, breaking sudo permissions on `/usr/bin/sudo` and `/etc/` (auth.js, storage.js)

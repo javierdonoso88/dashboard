@@ -364,8 +364,8 @@ async function createImageBackupShare(device, username) {
 
   // Set ownership so the user can write
   try {
-    await execFileAsync('sudo', ['chown', '-R', `${sambaUser}:sambashare`, sharePath]);
-    await execFileAsync('sudo', ['chmod', '-R', '775', sharePath]);
+    await execFileAsync('sudo', ['chown', `${sambaUser}:sambashare`, sharePath]);
+    await execFileAsync('sudo', ['chmod', '2775', sharePath]);
   } catch (e) {
     console.error('Permission setup warning:', e.message);
   }

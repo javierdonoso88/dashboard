@@ -2,10 +2,10 @@
 
 # HomePiNAS - Premium Dashboard for Raspberry Pi / Debian / Ubuntu
 # Universal Installer with automatic OS detection
-# Version: 2.10.6 (Homelabs.club Edition)
+# Version: 2.10.7 (Homelabs.club Edition)
 
 # Version - CHANGE THIS FOR EACH RELEASE
-APP_VERSION="2.10.6"
+APP_VERSION="2.10.7"
 
 # Parse command line arguments
 CLEAN_INSTALL=false
@@ -1291,9 +1291,11 @@ $REAL_USER ALL=(ALL) NOPASSWD: /usr/bin/smbpasswd -a -s [a-zA-Z]*
 $REAL_USER ALL=(ALL) NOPASSWD: /usr/bin/smbpasswd -e [a-zA-Z]*
 $REAL_USER ALL=(ALL) NOPASSWD: /usr/bin/pdbedit -L
 
-# File permissions (RESTRICTED to /mnt/storage only)
-$REAL_USER ALL=(ALL) NOPASSWD: /bin/chown -R *\:sambashare /mnt/storage
-$REAL_USER ALL=(ALL) NOPASSWD: /bin/chmod -R 2775 /mnt/storage
+# File permissions (RESTRICTED to /mnt/storage only, NO -R to prevent system damage)
+$REAL_USER ALL=(ALL) NOPASSWD: /bin/chown *\:sambashare /mnt/storage
+$REAL_USER ALL=(ALL) NOPASSWD: /bin/chown *\:sambashare /mnt/storage/*
+$REAL_USER ALL=(ALL) NOPASSWD: /bin/chmod 2775 /mnt/storage
+$REAL_USER ALL=(ALL) NOPASSWD: /bin/chmod 2775 /mnt/storage/*
 
 # SMART monitoring (allow all smartctl operations)
 $REAL_USER ALL=(ALL) NOPASSWD: /usr/sbin/smartctl *
