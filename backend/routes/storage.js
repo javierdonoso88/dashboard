@@ -1868,8 +1868,16 @@ router.post('/badblocks/:device', requireAuth, async (req, res) => {
         badblocksSessions[device] = session;
         
         // Run badblocks in read-only mode (-v verbose, -s show progress)
-        // -b 4096 = 4K block size (modern disks)
-        const bbProcess = spawn('sudo', ['/usr/sbin/badblocks', '-v', '-s', '-b', '4096', devicePath], {
+        // Block size must keep total block count under 2^32 (badblocks limitation)
+        // 4K for disks ≤16TB, 64K for larger disks
+        const maxBlocks32bit = 4294967295; // 2^32 - 1
+        const diskSizeBytes = diskSizeGB * 1073741824;
+        let blockSize = 4096;
+        if (diskSizeBytes / blockSize > maxBlocks32bit) {
+            blockSize = 65536; // 64K blocks for large disks
+        }
+        
+        const bbProcess = spawn('sudo', ['/usr/sbin/badblocks', '-v', '-s', '-b', String(blockSize), devicePath], {
             stdio: ['pipe', 'pipe', 'pipe']
         });
         
