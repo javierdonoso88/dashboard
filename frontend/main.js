@@ -2999,10 +2999,87 @@ async function renderStorageDashboard() {
                             });
                         } else {
                             testBtn.textContent = '🔍 Test de disco';
-                            testBtn.addEventListener('click', async () => {
-                                if (confirm(`Lanzar test completo de disco en ${disk.id}?\n\nEsto escaneará TODOS los sectores buscando errores.\nEl NAS seguirá funcionando pero con rendimiento reducido.\n\n⏱ Puede tardar varias horas según el tamaño del disco.`)) {
-                                    await startBadblocks(disk.id);
-                                }
+                            testBtn.addEventListener('click', () => {
+                                // Show dropdown with test options
+                                const existing = document.getElementById(`test-menu-${disk.id}`);
+                                if (existing) { existing.remove(); return; }
+                                
+                                const menu = document.createElement('div');
+                                menu.id = `test-menu-${disk.id}`;
+                                menu.style.cssText = 'position: absolute; right: 0; top: 100%; background: rgba(30,30,50,0.95); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 6px 0; z-index: 100; min-width: 220px; backdrop-filter: blur(10px); box-shadow: 0 8px 24px rgba(0,0,0,0.4);';
+                                
+                                const optSmartShort = document.createElement('div');
+                                optSmartShort.style.cssText = 'padding: 10px 16px; cursor: pointer; font-size: 0.85rem; color: #e0e0e0; transition: background 0.2s;';
+                                optSmartShort.innerHTML = '<b>⚡ Test rápido SMART</b><br><span style="font-size:0.75rem;color:rgba(255,255,255,0.5)">~2 minutos · Autodiagnóstico del disco</span>';
+                                optSmartShort.addEventListener('mouseenter', () => optSmartShort.style.background = 'rgba(255,255,255,0.1)');
+                                optSmartShort.addEventListener('mouseleave', () => optSmartShort.style.background = 'none');
+                                optSmartShort.addEventListener('click', async () => {
+                                    menu.remove();
+                                    testBtn.disabled = true;
+                                    testBtn.textContent = '⏳ SMART...';
+                                    try {
+                                        const r = await authFetch(`${API_BASE}/storage/smart/${disk.id}/test`, {
+                                            method: 'POST',
+                                            body: JSON.stringify({ type: 'short' })
+                                        });
+                                        const result = await r.json();
+                                        if (r.ok && result.success) {
+                                            showNotification(`Test SMART rápido iniciado en ${disk.id} (~2 min)`, 'success');
+                                            testBtn.textContent = '⚡ SMART en curso...';
+                                            const pollSmart = async () => {
+                                                try {
+                                                    const sRes = await authFetch(`${API_BASE}/storage/smart/${disk.id}/status`);
+                                                    if (sRes.ok) {
+                                                        const s = await sRes.json();
+                                                        if (s.testInProgress) {
+                                                            testBtn.textContent = `⚡ SMART ${100 - (s.remainingPercent || 0)}%`;
+                                                            setTimeout(pollSmart, 15000);
+                                                        } else {
+                                                            showNotification(`Test SMART completado en ${disk.id}`, 'success');
+                                                            renderStorageDashboard();
+                                                        }
+                                                    }
+                                                } catch (e) { setTimeout(pollSmart, 15000); }
+                                            };
+                                            setTimeout(pollSmart, 10000);
+                                        } else {
+                                            showNotification(result.error || 'Error', 'error');
+                                            testBtn.disabled = false;
+                                            testBtn.textContent = '🔍 Test de disco';
+                                        }
+                                    } catch (e) {
+                                        showNotification(`Error: ${e.message}`, 'error');
+                                        testBtn.disabled = false;
+                                        testBtn.textContent = '🔍 Test de disco';
+                                    }
+                                });
+                                
+                                const divider = document.createElement('div');
+                                divider.style.cssText = 'height: 1px; background: rgba(255,255,255,0.1); margin: 4px 0;';
+                                
+                                const optBadblocks = document.createElement('div');
+                                optBadblocks.style.cssText = 'padding: 10px 16px; cursor: pointer; font-size: 0.85rem; color: #e0e0e0; transition: background 0.2s;';
+                                optBadblocks.innerHTML = '<b>🔍 Test completo (badblocks)</b><br><span style="font-size:0.75rem;color:rgba(255,255,255,0.5)">Horas · Escaneo sector a sector</span>';
+                                optBadblocks.addEventListener('mouseenter', () => optBadblocks.style.background = 'rgba(255,255,255,0.1)');
+                                optBadblocks.addEventListener('mouseleave', () => optBadblocks.style.background = 'none');
+                                optBadblocks.addEventListener('click', async () => {
+                                    menu.remove();
+                                    if (confirm(`Lanzar test completo (badblocks) en ${disk.id}?\n\nEscanea TODOS los sectores buscando errores.\nEl NAS seguirá funcionando pero más lento.\n\n⏱ Puede tardar muchas horas según el tamaño.`)) {
+                                        await startBadblocks(disk.id);
+                                    }
+                                });
+                                
+                                menu.appendChild(optSmartShort);
+                                menu.appendChild(divider);
+                                menu.appendChild(optBadblocks);
+                                
+                                // Position relative to button
+                                testBtn.parentElement.style.position = 'relative';
+                                testBtn.parentElement.appendChild(menu);
+                                
+                                // Close on outside click
+                                const closeMenu = (e) => { if (!menu.contains(e.target) && e.target !== testBtn) { menu.remove(); document.removeEventListener('click', closeMenu); } };
+                                setTimeout(() => document.addEventListener('click', closeMenu), 0);
                             });
                         }
                         
