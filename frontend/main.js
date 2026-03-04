@@ -3272,7 +3272,15 @@ async function renderStorageDashboard() {
         if (!state.pollingIntervals.storage) {
             state.pollingIntervals.storage = setInterval(async () => {
                 if (state.currentView === 'storage') {
-                    await renderStorageDashboard();
+                    // Only update pool stats without full re-render (avoids flicker)
+                    try {
+                        const poolRes = await authFetch(`${API_BASE}/storage/pool/status`);
+                        if (poolRes.ok) {
+                            const poolStatus = await poolRes.json();
+                            const freeEl = document.querySelector('.dash-pool-free-value');
+                            if (freeEl) freeEl.textContent = poolStatus.poolFree || 'N/A';
+                        }
+                    } catch (e) { /* ignore */ }
                 }
             }, 30000);
         }
