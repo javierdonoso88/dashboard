@@ -1810,6 +1810,203 @@ router.post('/smart/:device/test', requireAuth, async (req, res) => {
     }
 });
 
+// =============================================================================
+// BADBLOCKS - Full surface scan
+// =============================================================================
+
+// Track running badblocks processes per device
+const badblocksSessions = {};
+
+/**
+ * POST /storage/badblocks/:device - Start badblocks surface scan (read-only)
+ * This is a LONG operation (hours for large disks). Runs in background.
+ */
+router.post('/badblocks/:device', requireAuth, async (req, res) => {
+    try {
+        const device = req.params.device;
+        
+        if (!/^[a-zA-Z0-9]+$/.test(device)) {
+            return res.status(400).json({ error: 'Invalid device name' });
+        }
+        
+        const devicePath = `/dev/${device}`;
+        
+        // Check if badblocks is already running on this device
+        if (badblocksSessions[device] && badblocksSessions[device].running) {
+            return res.status(409).json({ 
+                error: 'Badblocks already running on this device',
+                progress: badblocksSessions[device].progress
+            });
+        }
+        
+        // Get disk size for time estimation
+        let diskSizeGB = 0;
+        try {
+            const sizeBytes = execFileSync('sudo', ['blockdev', '--getsize64', devicePath], {
+                encoding: 'utf8', timeout: 5000
+            }).trim();
+            diskSizeGB = Math.round(parseInt(sizeBytes) / 1073741824);
+        } catch (e) {}
+        
+        // Estimated time: ~50 MB/s read speed for HDD = ~5.5h per TB
+        const estimatedHours = Math.round((diskSizeGB / 1024) * 5.5);
+        
+        const session = {
+            running: true,
+            device: device,
+            startTime: Date.now(),
+            progress: 0,
+            currentBlock: 0,
+            totalBlocks: 0,
+            badBlocks: [],
+            error: null,
+            estimatedHours: estimatedHours,
+            diskSizeGB: diskSizeGB,
+            output: ''
+        };
+        
+        badblocksSessions[device] = session;
+        
+        // Run badblocks in read-only mode (-v verbose, -s show progress)
+        // -b 4096 = 4K block size (modern disks)
+        const bbProcess = spawn('sudo', ['/usr/sbin/badblocks', '-v', '-s', '-b', '4096', devicePath], {
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+        
+        session.pid = bbProcess.pid;
+        
+        // badblocks outputs progress to stderr, bad block numbers to stdout
+        bbProcess.stdout.on('data', (data) => {
+            // Bad block numbers appear on stdout
+            const blocks = data.toString().trim().split('\n').filter(l => l.trim());
+            blocks.forEach(b => {
+                const blockNum = parseInt(b.trim());
+                if (!isNaN(blockNum)) {
+                    session.badBlocks.push(blockNum);
+                }
+            });
+        });
+        
+        bbProcess.stderr.on('data', (data) => {
+            const text = data.toString();
+            session.output = text; // Keep last chunk
+            
+            // Parse progress: "Checking for bad blocks (read-only test): 23.45% done, 2:15:30 elapsed. (0/0/0 errors)"
+            const progressMatch = text.match(/([\d.]+)%\s*done/);
+            if (progressMatch) {
+                session.progress = parseFloat(progressMatch[1]);
+            }
+            
+            // Parse errors count
+            const errorMatch = text.match(/\((\d+)\/(\d+)\/(\d+)\s*errors?\)/);
+            if (errorMatch) {
+                session.readErrors = parseInt(errorMatch[1]);
+                session.writeErrors = parseInt(errorMatch[2]);
+                session.corruptErrors = parseInt(errorMatch[3]);
+            }
+        });
+        
+        bbProcess.on('close', (code) => {
+            session.running = false;
+            session.endTime = Date.now();
+            session.exitCode = code;
+            session.progress = 100;
+            
+            if (code === 0) {
+                session.result = session.badBlocks.length === 0 ? 'passed' : 'bad_blocks_found';
+            } else {
+                session.result = 'error';
+                session.error = `badblocks exited with code ${code}`;
+            }
+            
+            logSecurityEvent('BADBLOCKS_COMPLETE', { 
+                device, 
+                duration: session.endTime - session.startTime,
+                badBlocks: session.badBlocks.length,
+                result: session.result
+            }, '');
+        });
+        
+        bbProcess.on('error', (err) => {
+            session.running = false;
+            session.error = err.message;
+            session.result = 'error';
+        });
+        
+        logSecurityEvent('BADBLOCKS_STARTED', { device, estimatedHours }, req.ip);
+        
+        res.json({
+            success: true,
+            message: `Badblocks started on ${device}`,
+            estimatedHours: estimatedHours,
+            diskSizeGB: diskSizeGB
+        });
+        
+    } catch (error) {
+        console.error('Badblocks start error:', error);
+        res.status(500).json({ error: 'Failed to start badblocks: ' + error.message });
+    }
+});
+
+/**
+ * GET /storage/badblocks/:device/status - Get badblocks progress
+ */
+router.get('/badblocks/:device/status', requireAuth, async (req, res) => {
+    const device = req.params.device;
+    
+    if (!/^[a-zA-Z0-9]+$/.test(device)) {
+        return res.status(400).json({ error: 'Invalid device name' });
+    }
+    
+    const session = badblocksSessions[device];
+    if (!session) {
+        return res.json({ running: false, hasResult: false });
+    }
+    
+    const elapsed = Date.now() - session.startTime;
+    const elapsedHours = (elapsed / 3600000).toFixed(1);
+    
+    res.json({
+        running: session.running,
+        progress: Math.round(session.progress * 100) / 100,
+        badBlocksFound: session.badBlocks.length,
+        readErrors: session.readErrors || 0,
+        writeErrors: session.writeErrors || 0,
+        corruptErrors: session.corruptErrors || 0,
+        elapsedHours: parseFloat(elapsedHours),
+        estimatedHours: session.estimatedHours,
+        diskSizeGB: session.diskSizeGB,
+        result: session.result || null,
+        hasResult: !session.running && session.result !== undefined
+    });
+});
+
+/**
+ * DELETE /storage/badblocks/:device - Cancel running badblocks
+ */
+router.delete('/badblocks/:device', requireAuth, async (req, res) => {
+    const device = req.params.device;
+    
+    if (!/^[a-zA-Z0-9]+$/.test(device)) {
+        return res.status(400).json({ error: 'Invalid device name' });
+    }
+    
+    const session = badblocksSessions[device];
+    if (!session || !session.running) {
+        return res.status(404).json({ error: 'No badblocks running on this device' });
+    }
+    
+    try {
+        execFileSync('sudo', ['kill', String(session.pid)], { encoding: 'utf8', timeout: 5000 });
+        session.running = false;
+        session.result = 'cancelled';
+        session.endTime = Date.now();
+        res.json({ success: true, message: 'Badblocks cancelled' });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to cancel: ' + e.message });
+    }
+});
+
 // GET /storage/smart/:device/status - Get current test status
 router.get('/smart/:device/status', requireAuth, async (req, res) => {
     try {

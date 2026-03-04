@@ -2954,54 +2954,98 @@ async function renderStorageDashboard() {
                         testBtn.className = 'disk-health-test-btn';
                         testBtn.style.cssText = 'padding: 6px 12px; border-radius: 6px; background: rgba(78, 205, 196, 0.2); color: #4ecdc4; border: 1px solid rgba(78, 205, 196, 0.3); cursor: pointer; font-size: 0.85rem; white-space: nowrap;';
                         
-                        if (disk.testInProgress) {
-                            testBtn.textContent = `${t('diskHealth.testRunning', 'Test en curso')} ${100 - disk.testProgress}%`;
+                        // Check if badblocks is running on this disk
+                        const bbStatusRes = await authFetch(`${API_BASE}/storage/badblocks/${disk.id}/status`);
+                        const bbStatus = bbStatusRes.ok ? await bbStatusRes.json() : { running: false };
+                        
+                        if (bbStatus.running) {
+                            testBtn.textContent = `🔍 Escaneando ${bbStatus.progress}%`;
                             testBtn.disabled = true;
-                            testBtn.style.opacity = '0.6';
-                        } else {
-                            testBtn.textContent = t('diskHealth.runTest', 'Ejecutar Test');
-                            testBtn.addEventListener('click', async () => {
-                                testBtn.disabled = true;
-                                testBtn.textContent = '⏳';
-                                try {
-                                    const res = await authFetch(`${API_BASE}/storage/smart/${disk.id}/test`, {
-                                        method: 'POST',
-                                        body: JSON.stringify({ type: 'short' })
-                                    });
-                                    const result = await res.json();
-                                    if (res.ok && result.success) {
-                                        showNotification(`Test SMART iniciado en ${disk.id} (~2 min)`, 'success');
-                                        testBtn.textContent = `${t('diskHealth.testRunning', 'Test en curso')}...`;
-                                        testBtn.style.opacity = '0.6';
-                                        // Poll every 15s until test completes
-                                        const pollTestStatus = async () => {
-                                            try {
-                                                const statusRes = await authFetch(`${API_BASE}/storage/smart/${disk.id}/status`);
-                                                if (statusRes.ok) {
-                                                    const status = await statusRes.json();
-                                                    if (status.testInProgress) {
-                                                        const pct = 100 - (status.remainingPercent || 0);
-                                                        testBtn.textContent = `${t('diskHealth.testRunning', 'Test en curso')} ${pct}%`;
-                                                        setTimeout(pollTestStatus, 15000);
-                                                    } else {
-                                                        showNotification(`Test SMART completado en ${disk.id}`, 'success');
-                                                        renderStorageDashboard();
-                                                    }
-                                                }
-                                            } catch (e) { /* ignore polling errors */ }
-                                        };
-                                        setTimeout(pollTestStatus, 10000);
-                                    } else {
-                                        showNotification(result.error || 'Error al iniciar test', 'error');
-                                        testBtn.disabled = false;
-                                        testBtn.textContent = t('diskHealth.runTest', 'Ejecutar Test');
-                                    }
-                                } catch (e) {
-                                    showNotification(`Error: ${e.message}`, 'error');
-                                    testBtn.disabled = false;
-                                    testBtn.textContent = t('diskHealth.runTest', 'Ejecutar Test');
+                            testBtn.style.opacity = '0.8';
+                            testBtn.style.background = 'rgba(251, 191, 36, 0.2)';
+                            testBtn.style.color = '#fbbf24';
+                            testBtn.style.borderColor = 'rgba(251, 191, 36, 0.3)';
+                            
+                            // Add info line
+                            const infoSpan = document.createElement('div');
+                            infoSpan.style.cssText = 'font-size: 0.75rem; color: rgba(255,255,255,0.5); margin-top: 4px;';
+                            infoSpan.textContent = `${bbStatus.elapsedHours}h de ~${bbStatus.estimatedHours}h · ${bbStatus.badBlocksFound} errores`;
+                            diskRow.appendChild(infoSpan);
+                            
+                            // Add cancel button
+                            const cancelBtn = document.createElement('button');
+                            cancelBtn.textContent = '✕ Cancelar';
+                            cancelBtn.style.cssText = 'padding: 4px 8px; border-radius: 4px; background: rgba(239,68,68,0.2); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); cursor: pointer; font-size: 0.75rem; margin-left: 8px;';
+                            cancelBtn.addEventListener('click', async () => {
+                                if (confirm('¿Cancelar el test de disco?')) {
+                                    await authFetch(`${API_BASE}/storage/badblocks/${disk.id}`, { method: 'DELETE' });
+                                    renderStorageDashboard();
                                 }
                             });
+                            diskRow.appendChild(cancelBtn);
+                            
+                        } else if (bbStatus.hasResult) {
+                            // Show last result
+                            const resultColor = bbStatus.badBlocksFound === 0 ? '#4ade80' : '#ef4444';
+                            const resultText = bbStatus.result === 'cancelled' ? '⏹ Cancelado' :
+                                bbStatus.badBlocksFound === 0 ? '✅ Sin errores' : `❌ ${bbStatus.badBlocksFound} sectores defectuosos`;
+                            testBtn.textContent = resultText;
+                            testBtn.style.color = resultColor;
+                            testBtn.style.borderColor = resultColor;
+                            testBtn.addEventListener('click', async () => {
+                                if (confirm(`Lanzar test completo de disco en ${disk.id}?\n\nEsto escaneará TODOS los sectores del disco.\nTiempo estimado: ~${Math.round((parseInt(disk.capacity) || 1) * 5.5 / 1024)}h\n\nEl NAS seguirá funcionando pero más lento.`)) {
+                                    await startBadblocks(disk.id);
+                                }
+                            });
+                        } else {
+                            testBtn.textContent = '🔍 Test de disco';
+                            testBtn.addEventListener('click', async () => {
+                                if (confirm(`Lanzar test completo de disco en ${disk.id}?\n\nEsto escaneará TODOS los sectores buscando errores.\nEl NAS seguirá funcionando pero con rendimiento reducido.\n\n⏱ Puede tardar varias horas según el tamaño del disco.`)) {
+                                    await startBadblocks(disk.id);
+                                }
+                            });
+                        }
+                        
+                        async function startBadblocks(diskId) {
+                            testBtn.disabled = true;
+                            testBtn.textContent = '⏳ Iniciando...';
+                            try {
+                                const res = await authFetch(`${API_BASE}/storage/badblocks/${diskId}`, {
+                                    method: 'POST'
+                                });
+                                const result = await res.json();
+                                if (res.ok && result.success) {
+                                    showNotification(`Test de disco iniciado en ${diskId} (~${result.estimatedHours}h estimadas)`, 'success');
+                                    // Poll progress
+                                    const pollBadblocks = async () => {
+                                        try {
+                                            const sRes = await authFetch(`${API_BASE}/storage/badblocks/${diskId}/status`);
+                                            if (sRes.ok) {
+                                                const s = await sRes.json();
+                                                if (s.running) {
+                                                    testBtn.textContent = `🔍 Escaneando ${s.progress}%`;
+                                                    setTimeout(pollBadblocks, 30000);
+                                                } else {
+                                                    const msg = s.badBlocksFound === 0 ? 
+                                                        `Test completado en ${diskId}: disco OK ✅` :
+                                                        `Test completado en ${diskId}: ${s.badBlocksFound} sectores defectuosos ❌`;
+                                                    showNotification(msg, s.badBlocksFound === 0 ? 'success' : 'error');
+                                                    renderStorageDashboard();
+                                                }
+                                            }
+                                        } catch (e) { setTimeout(pollBadblocks, 30000); }
+                                    };
+                                    setTimeout(pollBadblocks, 15000);
+                                } else {
+                                    showNotification(result.error || 'Error al iniciar test', 'error');
+                                    testBtn.disabled = false;
+                                    testBtn.textContent = '🔍 Test de disco';
+                                }
+                            } catch (e) {
+                                showNotification(`Error: ${e.message}`, 'error');
+                                testBtn.disabled = false;
+                                testBtn.textContent = '🔍 Test de disco';
+                            }
                         }
                         
                         diskRow.appendChild(testBtn);
