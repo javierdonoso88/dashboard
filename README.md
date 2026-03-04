@@ -89,7 +89,7 @@ Premium NAS Dashboard for Raspberry Pi CM5 - Homelabs.club Edition
 ### NAS Dashboard
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/juanlusoft/homepinas-v2/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/juanlusoft/dashboard/main/install.sh | sudo bash
 ```
 
 ### 💻 Backup Agent (Windows/Mac)
@@ -98,14 +98,14 @@ Download and install the Backup Agent on any PC you want to protect:
 
 | Platform | Download |
 |----------|----------|
-| Windows | [HomePiNAS-Backup-Setup.exe](https://github.com/juanlusoft/homepinas-v2/releases/latest) |
-| macOS | [HomePiNAS-Backup.dmg](https://github.com/juanlusoft/homepinas-v2/releases/latest) |
+| Windows | [HomePiNAS-Backup-Setup.exe](https://github.com/juanlusoft/dashboard/releases/latest) |
+| macOS | [HomePiNAS-Backup.dmg](https://github.com/juanlusoft/dashboard/releases/latest) |
 
 **Or build from source:**
 
 ```bash
-git clone https://github.com/juanlusoft/homepinas-v2.git
-cd homepinas-v2/agent
+git clone https://github.com/juanlusoft/dashboard.git
+cd dashboard/agent
 npm install
 npm start          # Run in development
 npm run build:win  # Build Windows .exe
