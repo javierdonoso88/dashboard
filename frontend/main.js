@@ -2870,9 +2870,11 @@ async function renderStorageDashboard() {
                 // Header with summary badge
                 const healthHeader = document.createElement('div');
                 healthHeader.className = 'storage-array-header';
-                const summaryBadge = healthData.summary.warning > 0 || healthData.summary.critical > 0
-                    ? `<span class="health-summary-badge ${healthData.summary.critical > 0 ? 'critical' : 'warning'}">${healthData.summary.healthy} OK · ${healthData.summary.warning + healthData.summary.critical} Atención</span>`
-                    : `<span class="health-summary-badge ok">${healthData.summary.healthy} OK</span>`;
+                const summaryParts = [`${healthData.summary.healthy} OK`];
+                if (healthData.summary.warning > 0) summaryParts.push(`${healthData.summary.warning} ${t('diskHealth.warning', 'Atención')}`);
+                if (healthData.summary.critical > 0) summaryParts.push(`${healthData.summary.critical} ${t('diskHealth.critical', 'Crítico')}`);
+                const summaryClass = healthData.summary.critical > 0 ? 'critical' : healthData.summary.warning > 0 ? 'warning' : 'ok';
+                const summaryBadge = `<span class="health-summary-badge ${summaryClass}">${summaryParts.join(' · ')}</span>`;
                 healthHeader.innerHTML = `<h3>🏥 ${t('diskHealth.title', 'Salud de Discos')}</h3>${summaryBadge}`;
                 healthCard.appendChild(healthHeader);
                 
