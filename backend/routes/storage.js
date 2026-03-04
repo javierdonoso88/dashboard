@@ -1840,12 +1840,14 @@ router.post('/badblocks/:device', requireAuth, async (req, res) => {
         }
         
         // Get disk size for time estimation
+        let diskSizeBytes = 0;
         let diskSizeGB = 0;
         try {
-            const sizeBytes = execFileSync('sudo', ['blockdev', '--getsize64', devicePath], {
+            const sizeBytesStr = execFileSync('sudo', ['blockdev', '--getsize64', devicePath], {
                 encoding: 'utf8', timeout: 5000
             }).trim();
-            diskSizeGB = Math.round(parseInt(sizeBytes) / 1073741824);
+            diskSizeBytes = parseInt(sizeBytesStr) || 0;
+            diskSizeGB = Math.round(diskSizeBytes / 1073741824);
         } catch (e) {}
         
         // Estimated time: ~50 MB/s read speed for HDD = ~5.5h per TB
@@ -1871,7 +1873,6 @@ router.post('/badblocks/:device', requireAuth, async (req, res) => {
         // Block size must keep total block count under 2^32 (badblocks limitation)
         // 4K for disks ≤16TB, 64K for larger disks
         const maxBlocks32bit = 4294967295; // 2^32 - 1
-        const diskSizeBytes = diskSizeGB * 1073741824;
         let blockSize = 4096;
         if (diskSizeBytes / blockSize > maxBlocks32bit) {
             blockSize = 65536; // 64K blocks for large disks
