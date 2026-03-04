@@ -2970,9 +2970,27 @@ async function renderStorageDashboard() {
                                     });
                                     const result = await res.json();
                                     if (res.ok && result.success) {
-                                        showNotification(`Test SMART iniciado en ${disk.id}`, 'success');
-                                        // Re-render after 2s to show test in progress
-                                        setTimeout(() => renderStorageDashboard(), 2000);
+                                        showNotification(`Test SMART iniciado en ${disk.id} (~2 min)`, 'success');
+                                        testBtn.textContent = `${t('diskHealth.testRunning', 'Test en curso')}...`;
+                                        testBtn.style.opacity = '0.6';
+                                        // Poll every 15s until test completes
+                                        const pollTestStatus = async () => {
+                                            try {
+                                                const statusRes = await authFetch(`${API_BASE}/storage/smart/${disk.id}/status`);
+                                                if (statusRes.ok) {
+                                                    const status = await statusRes.json();
+                                                    if (status.testInProgress) {
+                                                        const pct = 100 - (status.remainingPercent || 0);
+                                                        testBtn.textContent = `${t('diskHealth.testRunning', 'Test en curso')} ${pct}%`;
+                                                        setTimeout(pollTestStatus, 15000);
+                                                    } else {
+                                                        showNotification(`Test SMART completado en ${disk.id}`, 'success');
+                                                        renderStorageDashboard();
+                                                    }
+                                                }
+                                            } catch (e) { /* ignore polling errors */ }
+                                        };
+                                        setTimeout(pollTestStatus, 10000);
                                     } else {
                                         showNotification(result.error || 'Error al iniciar test', 'error');
                                         testBtn.disabled = false;
