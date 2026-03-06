@@ -465,8 +465,11 @@ function startGlobalPolling() {
             if (res.ok) {
                 state.globalStats = await res.json();
 
-                // Re-render dashboard if active to show real-time changes
-                if (state.currentView === "dashboard") renderDashboard();
+                // Re-render dashboard if still active (check generation to avoid race)
+                if (state.currentView === "dashboard") {
+                    renderGeneration++; // claim current generation for polling render
+                    renderDashboard();
+                }
             }
         } catch (e) {
             // Session expired - authFetch handles redirect, stop polling
@@ -2379,7 +2382,11 @@ function updateUserAvatar() {
     }
 }
 
+// Render generation counter to prevent race conditions between async renders
+let renderGeneration = 0;
+
 async function renderContent(view) {
+    const thisRender = ++renderGeneration;
     state.currentView = view;
     dashboardContent.innerHTML = '';
     
@@ -2421,6 +2428,7 @@ async function renderContent(view) {
 
 // Real-Time Dashboard
 async function renderDashboard() {
+    const myGeneration = renderGeneration;
     const stats = state.globalStats;
     const cpuTemp = Number(stats.cpuTemp) || 0;
     const cpuLoad = Number(stats.cpuLoad) || 0;
@@ -2559,6 +2567,9 @@ async function renderDashboard() {
         console.error('Error fetching disks:', e);
         disksHtml = `<div class="no-disks">${t('storage.unableToLoad', 'No se pudo cargar la información de discos')}</div>`;
     }
+
+    // Abort if user navigated away during async fetches
+    if (renderGeneration !== myGeneration) return;
 
     dashboardContent.innerHTML = `
         <div class="glass-card overview-card dash-overview-full">
