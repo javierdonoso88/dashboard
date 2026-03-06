@@ -4046,7 +4046,7 @@ function renderNetForm(netForm, iface, isDhcp) {
         const dnsInput = document.createElement('input');
         dnsInput.type = 'text';
         dnsInput.id = `dns-${iface.id}`;
-        dnsInput.value = '';
+        dnsInput.value = iface.dns || '';
         dnsInput.placeholder = ' ';
         const dnsLabel = document.createElement('label');
         dnsLabel.textContent = t('network.dns', 'DNS') + ' (ej: 8.8.8.8)';

@@ -30,6 +30,22 @@ router.get('/interfaces', requireAuth, async (req, res) => {
         const physicalPrefixes = ['eth', 'wlan', 'enp', 'ens', 'wlp', 'end'];
         const excludePrefixes = ['lo', 'docker', 'veth', 'br-', 'virbr', 'tun', 'tap'];
 
+        // Get gateway/DNS from nmcli for each connection (systeminformation often misses these)
+        let nmcliDetails = {};
+        try {
+            const conList = execFileSync('nmcli', ['-t', '-f', 'NAME,DEVICE', 'con', 'show'], { encoding: 'utf8', timeout: 5000 });
+            for (const line of conList.trim().split('\n')) {
+                const [conName, device] = line.split(':');
+                if (!device) continue;
+                try {
+                    const detail = execFileSync('nmcli', ['-t', '-f', 'IP4.GATEWAY,IP4.DNS,connection.autoconnect', 'con', 'show', conName], { encoding: 'utf8', timeout: 5000 });
+                    const gw = (detail.match(/IP4\.GATEWAY\[1\]:(.+)/)||[])[1] || '';
+                    const dns = (detail.match(/IP4\.DNS\[1\]:(.+)/)||[])[1] || '';
+                    nmcliDetails[device] = { gateway: gw.trim(), dns: dns.trim() };
+                } catch (e) {}
+            }
+        } catch (e) {}
+
         const interfaces = netInterfaces
             .filter(iface => {
                 if (!iface.iface || !validateInterfaceName(iface.iface)) return false;
@@ -39,16 +55,20 @@ router.get('/interfaces', requireAuth, async (req, res) => {
                 // Include only physical interfaces
                 return physicalPrefixes.some(prefix => name.startsWith(prefix));
             })
-            .map(iface => ({
-                id: iface.iface,
-                name: iface.ifaceName || iface.iface,
-                ip: iface.ip4 || '',
-                subnet: iface.ip4subnet || '',
-                gateway: iface.ip4gateway || '',
-                dhcp: iface.dhcp === true,
-                status: iface.operstate === 'up' ? 'connected' : 'disconnected',
-                mac: iface.mac || ''
-            }));
+            .map(iface => {
+                const nmcli = nmcliDetails[iface.iface] || {};
+                return {
+                    id: iface.iface,
+                    name: iface.ifaceName || iface.iface,
+                    ip: iface.ip4 || '',
+                    subnet: iface.ip4subnet || '',
+                    gateway: iface.ip4gateway || nmcli.gateway || '',
+                    dns: nmcli.dns || '',
+                    dhcp: iface.dhcp === true,
+                    status: iface.operstate === 'up' ? 'connected' : 'disconnected',
+                    mac: iface.mac || ''
+                };
+            });
 
         res.json(interfaces);
     } catch (e) {
