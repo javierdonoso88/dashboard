@@ -453,6 +453,9 @@ router.get('/disks', async (req, res) => {
                 if (dev.name && dev.name.startsWith('dm-')) return false;
                 const sizeGB = dev.size / 1024 / 1024 / 1024;
                 if (sizeGB < 1) return false;
+                // Filter phantom disks: must exist in lsblk AND have a real device node
+                if (!lsblkData[dev.name]) return false;
+                try { fs.statSync(`/dev/${dev.name}`); } catch { return false; }
                 return true;
             })
             .map(dev => {

@@ -749,6 +749,8 @@ router.get('/disks/detect', requireAuth, async (req, res) => {
             if (dev.size < 1000000000) continue;
             // Skip mmcblk (SD card, usually boot)
             if (dev.name.startsWith('mmcblk')) continue;
+            // Skip phantom disks (SATA ports without drives)
+            try { fs.statSync(`/dev/${dev.name}`); } catch { continue; }
 
             const diskInfo = {
                 id: dev.name,
