@@ -9,6 +9,8 @@
 const express = require('express');
 const router = express.Router();
 const si = require('systeminformation');
+const fs = require('fs');
+const { execFileSync } = require('child_process');
 
 const { requireAuth } = require('../middleware/auth');
 const { logSecurityEvent } = require('../utils/security');
