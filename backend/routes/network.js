@@ -136,15 +136,18 @@ router.post('/configure', requireAuth, (req, res) => {
                 const cidr = subnet.split('.').reduce((acc, octet) => 
                     acc + (parseInt(octet) >>> 0).toString(2).split('1').length - 1, 0);
 
-                execFileSync('sudo', ['nmcli', 'con', 'mod', conName, 'ipv4.method', 'manual'], { encoding: 'utf8', timeout: 10000 });
-                execFileSync('sudo', ['nmcli', 'con', 'mod', conName, 'ipv4.addresses', `${ip}/${cidr}`], { encoding: 'utf8', timeout: 10000 });
-                
+                // Set all static IP params in one nmcli call (method manual requires address)
+                const nmcliArgs = ['nmcli', 'con', 'mod', conName,
+                    'ipv4.method', 'manual',
+                    'ipv4.addresses', `${ip}/${cidr}`
+                ];
                 if (gateway) {
-                    execFileSync('sudo', ['nmcli', 'con', 'mod', conName, 'ipv4.gateway', gateway], { encoding: 'utf8', timeout: 10000 });
+                    nmcliArgs.push('ipv4.gateway', gateway);
                 }
                 if (dns) {
-                    execFileSync('sudo', ['nmcli', 'con', 'mod', conName, 'ipv4.dns', dns], { encoding: 'utf8', timeout: 10000 });
+                    nmcliArgs.push('ipv4.dns', dns);
                 }
+                execFileSync('sudo', nmcliArgs, { encoding: 'utf8', timeout: 10000 });
             }
 
             // Apply changes by reactivating the connection
