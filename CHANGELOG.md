@@ -2,6 +2,17 @@
 
 All notable changes to HomePiNAS are documented in this file.
 
+## [2.11.1] - 2026-03-06
+
+### Fixed
+- Fan control: pwmfan controls disk fans (not EMC2305), uses disk temp instead of CPU temp
+- Fan control: use thermal cooling_device0 (kernel governor was overriding direct pwm1 writes)
+- Fan control: load i2c-dev module + unbind EMC2305 kernel driver at boot
+- NVMe disks no longer filtered by phantom disk detection
+- Network config: add missing execFileSync/fs imports (was crashing)
+- Network config: resolve nmcli connection name from device name
+- Fan card CSS: no longer stretches with empty space in grid
+
 ## [2.11.0] - 2026-03-06
 
 ### Added
