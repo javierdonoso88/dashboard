@@ -30,21 +30,28 @@ router.get('/interfaces', requireAuth, async (req, res) => {
         const physicalPrefixes = ['eth', 'wlan', 'enp', 'ens', 'wlp', 'end'];
         const excludePrefixes = ['lo', 'docker', 'veth', 'br-', 'virbr', 'tun', 'tap'];
 
-        // Get gateway/DNS from nmcli for each connection (systeminformation often misses these)
+        // Get gateway/DNS from nmcli (cached 30s — nmcli is slow)
         let nmcliDetails = {};
-        try {
-            const conList = execFileSync('nmcli', ['-t', '-f', 'NAME,DEVICE', 'con', 'show'], { encoding: 'utf8', timeout: 5000 });
-            for (const line of conList.trim().split('\n')) {
-                const [conName, device] = line.split(':');
-                if (!device) continue;
-                try {
-                    const detail = execFileSync('nmcli', ['-t', '-f', 'IP4.GATEWAY,IP4.DNS,connection.autoconnect', 'con', 'show', conName], { encoding: 'utf8', timeout: 5000 });
-                    const gw = (detail.match(/IP4\.GATEWAY\[1\]:(.+)/)||[])[1] || '';
-                    const dns = (detail.match(/IP4\.DNS\[1\]:(.+)/)||[])[1] || '';
-                    nmcliDetails[device] = { gateway: gw.trim(), dns: dns.trim() };
-                } catch (e) {}
-            }
-        } catch (e) {}
+        const now = Date.now();
+        if (!router._nmcliCache || now - router._nmcliCacheTime > 30000) {
+            try {
+                const conList = execFileSync('nmcli', ['-t', '-f', 'NAME,DEVICE', 'con', 'show', '--active'], { encoding: 'utf8', timeout: 5000 });
+                for (const line of conList.trim().split('\n')) {
+                    const [conName, device] = line.split(':');
+                    if (!device || !physicalPrefixes.some(p => device.toLowerCase().startsWith(p))) continue;
+                    try {
+                        const detail = execFileSync('nmcli', ['-t', '-f', 'IP4.GATEWAY,IP4.DNS', 'con', 'show', conName], { encoding: 'utf8', timeout: 3000 });
+                        const gw = (detail.match(/IP4\.GATEWAY\[1\]:(.+)/)||[])[1] || '';
+                        const dns = (detail.match(/IP4\.DNS\[1\]:(.+)/)||[])[1] || '';
+                        nmcliDetails[device] = { gateway: gw.trim(), dns: dns.trim() };
+                    } catch (e) {}
+                }
+                router._nmcliCache = nmcliDetails;
+                router._nmcliCacheTime = now;
+            } catch (e) {}
+        } else {
+            nmcliDetails = router._nmcliCache;
+        }
 
         const interfaces = netInterfaces
             .filter(iface => {
