@@ -349,6 +349,8 @@ install_package_safe "git" ""
 install_package_safe "build-essential" "base-devel"
 install_package_safe "smartmontools" ""
 install_package_safe "i2c-tools" ""
+# Ensure i2c-dev module loads at boot (required for EMC2305 fan control)
+echo "i2c-dev" | tee /etc/modules-load.d/i2c-dev.conf > /dev/null 2>&1
 install_package_safe "lm-sensors" "sensors"
 install_package_safe "pigz" ""
 install_package_safe "samba" ""
@@ -963,6 +965,13 @@ EMC_ADDR=0x2e
 EMC_FAN1_REG=0x30
 EMC_FAN2_REG=0x40
 I2CSET=/usr/sbin/i2cset
+
+# Ensure i2c-dev is loaded and EMC2305 kernel driver is unbound for manual control
+modprobe i2c-dev 2>/dev/null
+if [ -e /sys/bus/i2c/drivers/emc2305/10-002e ]; then
+    echo "10-002e" > /sys/bus/i2c/drivers/emc2305/unbind 2>/dev/null
+    sleep 0.3
+fi
 
 # Default values (BALANCED)
 MIN_PWM1=65
