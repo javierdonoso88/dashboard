@@ -456,6 +456,9 @@ router.get('/disks', async (req, res) => {
                 // Filter phantom disks: must exist in lsblk AND have a real device node
                 if (!lsblkData[dev.name]) return false;
                 try { fs.statSync(`/dev/${dev.name}`); } catch { return false; }
+                // Filter ghost SATA devices with numeric-only or missing model names
+                const devModel = (lsblkData[dev.name].model || dev.model || '').trim();
+                if (!devModel || /^\d+$/.test(devModel)) return false;
                 return true;
             })
             .map(dev => {
