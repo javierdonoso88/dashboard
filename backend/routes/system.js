@@ -456,13 +456,11 @@ router.get('/disks', async (req, res) => {
                 // Filter phantom disks: must exist in lsblk AND have a real device node
                 if (!lsblkData[dev.name]) return false;
                 try { fs.statSync(`/dev/${dev.name}`); } catch { return false; }
-                // Filter ghost SATA devices with numeric-only or missing model names
-                // NVMe devices are always real (no phantom ports), skip this filter for them
-                const isNvme = dev.name.includes('nvme') || (lsblkData[dev.name].transport === 'nvme');
-                if (!isNvme) {
-                    const devModel = (lsblkData[dev.name].model || dev.model || '').trim();
-                    if (!devModel || /^\d+$/.test(devModel)) return false;
-                }
+                // Filter ghost SATA devices: phantom ports have numeric/empty model AND tiny/zero size
+                // Real disks behind USB/SATA bridges (JMB585) can report "456" but have real size
+                const devModel = (lsblkData[dev.name].model || dev.model || '').trim();
+                const isPhantom = (!devModel || /^\d+$/.test(devModel)) && dev.size < 1000000000;
+                if (isPhantom) return false;
                 return true;
             })
             .map(dev => {

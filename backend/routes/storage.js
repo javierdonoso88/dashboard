@@ -751,13 +751,11 @@ router.get('/disks/detect', requireAuth, async (req, res) => {
             if (dev.name.startsWith('mmcblk')) continue;
             // Skip phantom disks (SATA ports without drives)
             try { fs.statSync(`/dev/${dev.name}`); } catch { continue; }
-            // Skip ghost devices with numeric-only or missing model names (e.g. "456")
-            // NVMe devices are always real — no phantom ports
-            const isNvme = dev.name.includes('nvme') || (dev.interfaceType || '').toLowerCase() === 'nvme';
-            if (!isNvme) {
-                const devModel = (dev.model || '').trim();
-                if (!devModel || /^\d+$/.test(devModel)) continue;
-            }
+            // Skip ghost SATA devices: phantom ports have numeric model AND size 0 or no partitions
+            // Real disks behind USB/SATA bridges (JMB585) can also report "456" but have real size + partitions
+            const devModel = (dev.model || '').trim();
+            const isPhantom = (!devModel || /^\d+$/.test(devModel)) && dev.size < 1000000000;
+            if (isPhantom) continue;
 
             const diskInfo = {
                 id: dev.name,
