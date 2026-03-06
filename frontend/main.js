@@ -2753,13 +2753,16 @@ async function renderStorageDashboard() {
     
     try {
         // Fetch disks and pool status
-        const [disksRes, poolRes] = await Promise.all([
+        const [disksRes, poolRes, cacheRes] = await Promise.all([
             authFetch(`${API_BASE}/system/disks`),
-            authFetch(`${API_BASE}/storage/pool/status`)
+            authFetch(`${API_BASE}/storage/pool/status`),
+            authFetch(`${API_BASE}/storage/cache/status`).catch(() => null)
         ]);
         
         if (disksRes.ok) state.disks = await disksRes.json();
         let poolStatus = {};
+        let cacheStatus = null;
+        if (cacheRes && cacheRes.ok) cacheStatus = await cacheRes.json();
         if (poolRes.ok) poolStatus = await poolRes.json();
 
         // Storage Array Header (Cockpit style)
@@ -2865,6 +2868,63 @@ async function renderStorageDashboard() {
 
         arrayCard.appendChild(mountsGrid);
         dashboardContent.appendChild(arrayCard);
+
+        // Cache status card (if cache disks present)
+        if (cacheStatus && cacheStatus.hasCache) {
+            const cacheCard = document.createElement('div');
+            cacheCard.className = 'glass-card dash-overview-full';
+            cacheCard.style.gridColumn = '1 / -1';
+
+            let cacheDiskHtml = cacheStatus.cacheDisks.map(c => {
+                if (c.error) return `<div class="cache-disk-item" style="color: var(--text-dim);">⚠️ ${escapeHtml(c.disk)}: ${escapeHtml(c.error)}</div>`;
+                const pct = c.usagePercent || 0;
+                const barColor = pct > 85 ? '#ef4444' : pct > 60 ? '#f59e0b' : '#10b981';
+                return `
+                    <div class="cache-disk-item" style="margin-bottom: 12px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="font-weight: 600;">⚡ ${escapeHtml(c.disk)}</span>
+                            <span style="font-size: 0.85rem; color: var(--text-dim);">${escapeHtml(c.usedFormatted)} / ${escapeHtml(c.totalFormatted)}</span>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.1); border-radius: 6px; height: 8px; overflow: hidden;">
+                            <div style="background: ${barColor}; height: 100%; width: ${pct}%; border-radius: 6px; transition: width 0.3s;"></div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-dim); margin-top: 4px;">
+                            <span>${pct}% usado</span>
+                            <span>${escapeHtml(c.availableFormatted)} libre</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            const policyHtml = cacheStatus.policy ? `
+                <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--card-border, rgba(255,255,255,0.1));">
+                    <span style="font-size: 0.8rem; padding: 4px 10px; background: rgba(99,102,241,0.15); border-radius: 6px; color: var(--primary, #6366f1);">
+                        📝 Escritura: <strong>${escapeHtml(cacheStatus.policy.createPolicy || '?')}</strong>
+                    </span>
+                    ${cacheStatus.policy.moveOnNoSpace ? '<span style="font-size: 0.8rem; padding: 4px 10px; background: rgba(16,185,129,0.15); border-radius: 6px; color: #10b981;">✅ Auto-mover si caché llena</span>' : ''}
+                    ${cacheStatus.policy.minFreeSpace ? `<span style="font-size: 0.8rem; padding: 4px 10px; background: rgba(245,158,11,0.15); border-radius: 6px; color: #f59e0b;">📏 Min libre: ${escapeHtml(cacheStatus.policy.minFreeSpace)}</span>` : ''}
+                </div>
+            ` : '';
+
+            const fileCountHtml = cacheStatus.fileCounts ? `
+                <div style="display: flex; gap: 20px; margin-top: 10px; font-size: 0.85rem;">
+                    <span>⚡ Caché: <strong>${cacheStatus.fileCounts.cache}</strong> archivos</span>
+                    <span>💿 Datos: <strong>${cacheStatus.fileCounts.data}</strong> archivos</span>
+                </div>
+            ` : '';
+
+            cacheCard.innerHTML = `
+                <div style="margin-bottom: 15px;">
+                    <h3 style="margin: 0 0 4px 0;">⚡ Estado de la Caché</h3>
+                    <span style="font-size: 0.8rem; color: var(--text-dim);">${cacheStatus.cacheDisks.length} disco(s) SSD/NVMe como caché de escritura</span>
+                </div>
+                ${cacheDiskHtml}
+                ${fileCountHtml}
+                ${policyHtml}
+            `;
+
+            dashboardContent.appendChild(cacheCard);
+        }
 
         // Disk cards grid (detailed view)
         const grid = document.createElement('div');
@@ -6682,6 +6742,8 @@ function showFileContextMenu(e, filePath, file) {
         { icon: '📋', label: 'Copiar', action: () => { fmClipboard = { action: 'copy', files: [{ path: filePath, name: file.name }] }; renderFilesView(); } },
         { icon: '✂️', label: 'Mover', action: () => { fmClipboard = { action: 'cut', files: [{ path: filePath, name: file.name }] }; renderFilesView(); } },
         { divider: true },
+        { icon: '📍', label: 'Ver ubicación', action: () => showFileLocation(filePath) },
+        { divider: true },
         { icon: '🗑️', label: 'Eliminar', action: () => deleteFile(filePath, file.name), danger: true },
     ];
 
@@ -6705,6 +6767,22 @@ function showFileContextMenu(e, filePath, file) {
     setTimeout(() => {
         document.addEventListener('click', () => menu.remove(), { once: true });
     }, 10);
+}
+
+// Show physical disk location of a file (cache vs data pool)
+async function showFileLocation(filePath) {
+    try {
+        const res = await authFetch(`${API_BASE}/storage/file-location?path=${encodeURIComponent(filePath)}`);
+        const data = await res.json();
+
+        const typeIcon = data.diskType === 'cache' ? '⚡' : data.diskType === 'data' ? '💿' : '❓';
+        const typeName = data.diskType === 'cache' ? 'Caché (SSD/NVMe)' : data.diskType === 'data' ? 'Pool de datos (HDD)' : 'Desconocido';
+        const typeColor = data.diskType === 'cache' ? '#f59e0b' : data.diskType === 'data' ? '#6366f1' : '#888';
+
+        showNotification(`${typeIcon} ${escapeHtml(filePath.split('/').pop())}: ${typeName} (${escapeHtml(data.physicalLocation)})`, 'info');
+    } catch (e) {
+        showNotification('No se pudo determinar la ubicación del archivo', 'error');
+    }
 }
 
 // =============================================================================

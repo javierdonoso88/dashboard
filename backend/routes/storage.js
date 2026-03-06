@@ -15,7 +15,7 @@ const { requireAuth } = require('../middleware/auth');
 const { logSecurityEvent } = require('../utils/security');
 const { getData, saveData } = require('../utils/data');
 const { validateSession } = require('../utils/session');
-const { sanitizeDiskId, validateDiskConfig } = require('../utils/sanitize');
+const { sanitizeDiskId, validateDiskConfig, sanitizePathWithinBase } = require('../utils/sanitize');
 
 const STORAGE_MOUNT_BASE = '/mnt/disks';
 const POOL_MOUNT = '/mnt/storage';
@@ -805,6 +805,193 @@ router.get('/disks/detect', requireAuth, async (req, res) => {
         res.status(500).json({ error: 'Failed to detect disks' });
     }
 });
+
+/**
+ * GET /cache/status - Cache disk status and MergerFS policy info
+ */
+router.get('/cache/status', requireAuth, async (req, res) => {
+    try {
+        const data = getData();
+        const storageConfig = data.storageConfig || [];
+        const cacheDisks = storageConfig.filter(d => d.role === 'cache');
+        const dataDisks = storageConfig.filter(d => d.role === 'data');
+
+        if (cacheDisks.length === 0) {
+            return res.json({
+                hasCache: false,
+                message: 'No cache disks configured'
+            });
+        }
+
+        // Get cache disk usage
+        const cacheInfo = [];
+        for (let i = 0; i < cacheDisks.length; i++) {
+            const mountPoint = `${STORAGE_MOUNT_BASE}/cache${i + 1}`;
+            try {
+                const dfOutput = execFileSync('df', ['-B1', mountPoint], {
+                    encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'ignore']
+                });
+                const lines = dfOutput.trim().split('\n');
+                if (lines.length >= 2) {
+                    const parts = lines[1].split(/\s+/);
+                    const total = parseInt(parts[1]) || 0;
+                    const used = parseInt(parts[2]) || 0;
+                    const available = parseInt(parts[3]) || 0;
+                    const usagePercent = parseInt(parts[4]) || 0;
+
+                    cacheInfo.push({
+                        disk: cacheDisks[i].id,
+                        mountPoint,
+                        total,
+                        used,
+                        available,
+                        usagePercent,
+                        totalFormatted: formatBytes(total),
+                        usedFormatted: formatBytes(used),
+                        availableFormatted: formatBytes(available)
+                    });
+                }
+            } catch (e) {
+                cacheInfo.push({ disk: cacheDisks[i].id, mountPoint, error: 'Not mounted' });
+            }
+        }
+
+        // Get MergerFS policy info
+        let mergerfsPolicy = {};
+        try {
+            const mountOutput = execFileSync('mount', [], { encoding: 'utf8', timeout: 5000 });
+            const mergerfsLine = mountOutput.split('\n').find(l => l.includes('mergerfs') && l.includes(POOL_MOUNT));
+            if (mergerfsLine) {
+                const optsMatch = mergerfsLine.match(/\(([^)]+)\)/);
+                if (optsMatch) {
+                    const opts = optsMatch[1];
+                    const createMatch = opts.match(/category\.create=(\w+)/);
+                    const moveMatch = opts.match(/moveonenospc=(\w+)/);
+                    const minFreeMatch = opts.match(/minfreespace=(\S+?)(?:,|$)/);
+                    mergerfsPolicy = {
+                        createPolicy: createMatch ? createMatch[1] : 'unknown',
+                        moveOnNoSpace: moveMatch ? moveMatch[1] === 'true' : false,
+                        minFreeSpace: minFreeMatch ? minFreeMatch[1] : null
+                    };
+                }
+            }
+        } catch (e) {}
+
+        // Count files on cache vs data (quick sample using find, limited)
+        let cacheFileCount = 0;
+        let dataFileCount = 0;
+        try {
+            for (const c of cacheInfo) {
+                if (!c.error) {
+                    const count = execFileSync('find', [c.mountPoint, '-type', 'f', '-maxdepth', '3'], {
+                        encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'ignore']
+                    }).trim().split('\n').filter(l => l).length;
+                    cacheFileCount += count;
+                }
+            }
+            // Count data disk files (sample)
+            for (let i = 0; i < Math.min(dataDisks.length, 2); i++) {
+                const mountPoint = `${STORAGE_MOUNT_BASE}/disk${i + 1}`;
+                try {
+                    const count = execFileSync('find', [mountPoint, '-type', 'f', '-maxdepth', '3'], {
+                        encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'ignore']
+                    }).trim().split('\n').filter(l => l).length;
+                    dataFileCount += count;
+                } catch (e) {}
+            }
+        } catch (e) {}
+
+        res.json({
+            hasCache: true,
+            cacheDisks: cacheInfo,
+            dataDisksCount: dataDisks.length,
+            policy: mergerfsPolicy,
+            fileCounts: {
+                cache: cacheFileCount,
+                data: dataFileCount,
+                note: 'Approximate (sampled to depth 3)'
+            }
+        });
+    } catch (e) {
+        console.error('Cache status error:', e);
+        res.status(500).json({ error: 'Failed to get cache status' });
+    }
+});
+
+/**
+ * GET /file-location - Get physical disk location of a file in the MergerFS pool
+ * Query: ?path=/mnt/storage/some/file.txt
+ */
+router.get('/file-location', requireAuth, async (req, res) => {
+    try {
+        const filePath = req.query.path;
+        if (!filePath) {
+            return res.status(400).json({ error: 'Path parameter required' });
+        }
+
+        // Validate path is within pool
+        const safePath = sanitizePathWithinBase(filePath.replace(/^\/mnt\/storage\//, ''), POOL_MOUNT);
+        if (!safePath) {
+            return res.status(400).json({ error: 'Path must be within the storage pool' });
+        }
+
+        // Use getfattr to get the source mount from MergerFS
+        let location = 'unknown';
+        let diskType = 'unknown';
+        try {
+            const xattrOutput = execFileSync('getfattr', ['-n', 'user.mergerfs.srcpath', '--only-values', safePath], {
+                encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'ignore']
+            }).trim();
+
+            if (xattrOutput) {
+                location = xattrOutput;
+                // Determine if cache or data
+                if (xattrOutput.includes('/cache')) {
+                    diskType = 'cache';
+                } else if (xattrOutput.includes('/disk')) {
+                    diskType = 'data';
+                }
+            }
+        } catch (e) {
+            // getfattr might not be installed or file doesn't support xattrs
+            // Fallback: check which underlying mount contains this file
+            try {
+                const relativePath = safePath.replace(POOL_MOUNT, '');
+                const data = getData();
+                const config = data.storageConfig || [];
+                
+                for (const disk of config) {
+                    const mountBase = disk.role === 'cache' ? 'cache' : 'disk';
+                    const idx = config.filter(d => d.role === disk.role).indexOf(disk) + 1;
+                    const checkPath = `${STORAGE_MOUNT_BASE}/${mountBase}${idx}${relativePath}`;
+                    try {
+                        fs.statSync(checkPath);
+                        location = `${STORAGE_MOUNT_BASE}/${mountBase}${idx}`;
+                        diskType = disk.role;
+                        break;
+                    } catch (e2) {}
+                }
+            } catch (e2) {}
+        }
+
+        res.json({
+            path: filePath,
+            physicalLocation: location,
+            diskType
+        });
+    } catch (e) {
+        console.error('File location error:', e);
+        res.status(500).json({ error: 'Failed to get file location' });
+    }
+});
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
 
 /**
  * Add a disk to the MergerFS pool

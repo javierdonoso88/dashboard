@@ -2,6 +2,15 @@
 
 All notable changes to HomePiNAS are documented in this file.
 
+## [2.11.0] - 2026-03-06
+
+### Added
+- **Cache status dashboard**: shows SSD/NVMe cache usage, free space, and fill percentage
+- **MergerFS policy info**: displays write policy (lfs/mfs), moveonenospc, and min free space
+- **File count comparison**: approximate file counts on cache vs data pool
+- **"View location" in File Station**: right-click any file to see if it's on cache or data disk
+- New API endpoints: `/storage/cache/status` and `/storage/file-location`
+
 ## [2.10.9] - 2026-03-06
 
 ### Fixed
