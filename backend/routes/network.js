@@ -111,12 +111,20 @@ router.post('/configure', requireAuth, (req, res) => {
 
         // Apply network configuration using nmcli (NetworkManager)
         try {
+            // Resolve connection name from device name (nmcli uses connection names, not device names)
+            let conName = id;
+            try {
+                const conList = execFileSync('nmcli', ['-t', '-f', 'NAME,DEVICE', 'con', 'show'], { encoding: 'utf8', timeout: 5000 });
+                const match = conList.split('\n').find(l => l.split(':')[1] === id);
+                if (match) conName = match.split(':')[0];
+            } catch (e) {}
+
             if (isDhcp) {
                 // Switch to DHCP
-                execFileSync('sudo', ['nmcli', 'con', 'mod', id, 'ipv4.method', 'auto'], { encoding: 'utf8', timeout: 10000 });
-                execFileSync('sudo', ['nmcli', 'con', 'mod', id, 'ipv4.addresses', ''], { encoding: 'utf8', timeout: 10000 });
-                execFileSync('sudo', ['nmcli', 'con', 'mod', id, 'ipv4.gateway', ''], { encoding: 'utf8', timeout: 10000 });
-                execFileSync('sudo', ['nmcli', 'con', 'mod', id, 'ipv4.dns', ''], { encoding: 'utf8', timeout: 10000 });
+                execFileSync('sudo', ['nmcli', 'con', 'mod', conName, 'ipv4.method', 'auto'], { encoding: 'utf8', timeout: 10000 });
+                execFileSync('sudo', ['nmcli', 'con', 'mod', conName, 'ipv4.addresses', ''], { encoding: 'utf8', timeout: 10000 });
+                execFileSync('sudo', ['nmcli', 'con', 'mod', conName, 'ipv4.gateway', ''], { encoding: 'utf8', timeout: 10000 });
+                execFileSync('sudo', ['nmcli', 'con', 'mod', conName, 'ipv4.dns', ''], { encoding: 'utf8', timeout: 10000 });
             } else {
                 // Static IP configuration
                 const ip = config.ip;
@@ -128,19 +136,19 @@ router.post('/configure', requireAuth, (req, res) => {
                 const cidr = subnet.split('.').reduce((acc, octet) => 
                     acc + (parseInt(octet) >>> 0).toString(2).split('1').length - 1, 0);
 
-                execFileSync('sudo', ['nmcli', 'con', 'mod', id, 'ipv4.method', 'manual'], { encoding: 'utf8', timeout: 10000 });
-                execFileSync('sudo', ['nmcli', 'con', 'mod', id, 'ipv4.addresses', `${ip}/${cidr}`], { encoding: 'utf8', timeout: 10000 });
+                execFileSync('sudo', ['nmcli', 'con', 'mod', conName, 'ipv4.method', 'manual'], { encoding: 'utf8', timeout: 10000 });
+                execFileSync('sudo', ['nmcli', 'con', 'mod', conName, 'ipv4.addresses', `${ip}/${cidr}`], { encoding: 'utf8', timeout: 10000 });
                 
                 if (gateway) {
-                    execFileSync('sudo', ['nmcli', 'con', 'mod', id, 'ipv4.gateway', gateway], { encoding: 'utf8', timeout: 10000 });
+                    execFileSync('sudo', ['nmcli', 'con', 'mod', conName, 'ipv4.gateway', gateway], { encoding: 'utf8', timeout: 10000 });
                 }
                 if (dns) {
-                    execFileSync('sudo', ['nmcli', 'con', 'mod', id, 'ipv4.dns', dns], { encoding: 'utf8', timeout: 10000 });
+                    execFileSync('sudo', ['nmcli', 'con', 'mod', conName, 'ipv4.dns', dns], { encoding: 'utf8', timeout: 10000 });
                 }
             }
 
             // Apply changes by reactivating the connection
-            execFileSync('sudo', ['nmcli', 'con', 'up', id], { encoding: 'utf8', timeout: 15000 });
+            execFileSync('sudo', ['nmcli', 'con', 'up', conName], { encoding: 'utf8', timeout: 15000 });
 
             res.json({
                 success: true,
