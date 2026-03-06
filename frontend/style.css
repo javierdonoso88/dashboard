@@ -1792,10 +1792,15 @@ input:checked+.slider:before {
 }
 
 /* Fan Mode Selector */
+/* Fans card: don't stretch to match taller siblings in grid */
+.glass-card:has(.fans-compact) {
+    align-self: start;
+}
+
 .fan-mode-selector {
     display: flex;
     gap: 8px;
-    margin-bottom: 15px;
+    margin-bottom: 0;
 }
 
 .fan-mode-btn {
