@@ -108,15 +108,28 @@ HYST_TEMP=2
 };
 
 // System Hardware Telemetry
+// Cache static system info (doesn't change between reboots)
+let staticInfoCache = null;
+let staticInfoTime = 0;
+
 router.get('/stats', requireAuth, async (req, res) => {
     try {
-        const [cpu, cpuInfo, mem, temp, osInfo, graphics] = await Promise.all([
+        // Fetch static info once (cpu, osInfo, graphics don't change)
+        const now = Date.now();
+        if (!staticInfoCache || now - staticInfoTime > 300000) {
+            const [cpuInfo, osInfo, graphics] = await Promise.all([
+                si.cpu(), si.osInfo(), si.graphics()
+            ]);
+            staticInfoCache = { cpuInfo, osInfo, graphics };
+            staticInfoTime = now;
+        }
+        const { cpuInfo, osInfo, graphics } = staticInfoCache;
+
+        // Fetch dynamic stats only
+        const [cpu, mem, temp] = await Promise.all([
             si.currentLoad(),
-            si.cpu(),
             si.mem(),
-            si.cpuTemperature(),
-            si.osInfo(),
-            si.graphics()
+            si.cpuTemperature()
         ]);
 
         // Try to get fan speeds

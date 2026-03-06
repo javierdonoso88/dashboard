@@ -479,7 +479,7 @@ function startGlobalPolling() {
             }
             console.error('Stats polling error:', e);
         }
-    }, 2000);
+    }, 5000);
 
     // Polling Public IP
     updatePublicIP();
