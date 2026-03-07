@@ -2680,6 +2680,30 @@ router.get("/disks/iostats", requireAuth, async (req, res) => {
 });
 
 
+
+// ============================================================================
+// CACHE MOVER MANUAL TRIGGER
+// ============================================================================
+router.post("/cache/mover/trigger", requireAuth, async (req, res) => {
+    try {
+        // Execute the cache mover script directly
+        execFileSync('sudo', ['/usr/local/bin/homepinas-cache-mover.sh'], {
+            encoding: 'utf8',
+            timeout: 60000  // 1 minute timeout
+        });
+        
+        res.json({ 
+            success: true, 
+            message: 'Cache mover ejecutado correctamente' 
+        });
+    } catch (e) {
+        console.error('Cache mover trigger error:', e);
+        res.status(500).json({ 
+            error: 'Error al ejecutar cache mover',
+            details: e.message 
+        });
+    }
+});
 module.exports = router;
 
 /**

@@ -9,6 +9,8 @@
 const express = require('express');
 const router = express.Router();
 const si = require('systeminformation');
+const fs = require('fs');
+const { execFileSync } = require('child_process');
 
 const { requireAuth } = require('../middleware/auth');
 const { logSecurityEvent } = require('../utils/security');
@@ -28,6 +30,29 @@ router.get('/interfaces', requireAuth, async (req, res) => {
         const physicalPrefixes = ['eth', 'wlan', 'enp', 'ens', 'wlp', 'end'];
         const excludePrefixes = ['lo', 'docker', 'veth', 'br-', 'virbr', 'tun', 'tap'];
 
+        // Get gateway/DNS from nmcli (cached 30s — nmcli is slow)
+        let nmcliDetails = {};
+        const now = Date.now();
+        if (!router._nmcliCache || now - router._nmcliCacheTime > 30000) {
+            try {
+                const conList = execFileSync('nmcli', ['-t', '-f', 'NAME,DEVICE', 'con', 'show', '--active'], { encoding: 'utf8', timeout: 5000 });
+                for (const line of conList.trim().split('\n')) {
+                    const [conName, device] = line.split(':');
+                    if (!device || !physicalPrefixes.some(p => device.toLowerCase().startsWith(p))) continue;
+                    try {
+                        const detail = execFileSync('nmcli', ['-t', '-f', 'IP4.GATEWAY,IP4.DNS', 'con', 'show', conName], { encoding: 'utf8', timeout: 3000 });
+                        const gw = (detail.match(/IP4\.GATEWAY\[1\]:(.+)/)||[])[1] || '';
+                        const dns = (detail.match(/IP4\.DNS\[1\]:(.+)/)||[])[1] || '';
+                        nmcliDetails[device] = { gateway: gw.trim(), dns: dns.trim() };
+                    } catch (e) {}
+                }
+                router._nmcliCache = nmcliDetails;
+                router._nmcliCacheTime = now;
+            } catch (e) {}
+        } else {
+            nmcliDetails = router._nmcliCache;
+        }
+
         const interfaces = netInterfaces
             .filter(iface => {
                 if (!iface.iface || !validateInterfaceName(iface.iface)) return false;
@@ -37,16 +62,20 @@ router.get('/interfaces', requireAuth, async (req, res) => {
                 // Include only physical interfaces
                 return physicalPrefixes.some(prefix => name.startsWith(prefix));
             })
-            .map(iface => ({
-                id: iface.iface,
-                name: iface.ifaceName || iface.iface,
-                ip: iface.ip4 || '',
-                subnet: iface.ip4subnet || '',
-                gateway: iface.ip4gateway || '',
-                dhcp: iface.dhcp === true,
-                status: iface.operstate === 'up' ? 'connected' : 'disconnected',
-                mac: iface.mac || ''
-            }));
+            .map(iface => {
+                const nmcli = nmcliDetails[iface.iface] || {};
+                return {
+                    id: iface.iface,
+                    name: iface.ifaceName || iface.iface,
+                    ip: iface.ip4 || '',
+                    subnet: iface.ip4subnet || '',
+                    gateway: iface.ip4gateway || nmcli.gateway || '',
+                    dns: nmcli.dns || '',
+                    dhcp: iface.dhcp === true,
+                    status: iface.operstate === 'up' ? 'connected' : 'disconnected',
+                    mac: iface.mac || ''
+                };
+            });
 
         res.json(interfaces);
     } catch (e) {
@@ -56,7 +85,7 @@ router.get('/interfaces', requireAuth, async (req, res) => {
 });
 
 // Configure network interface
-router.post('/configure', requireAuth, async (req, res) => {
+router.post('/configure', requireAuth, (req, res) => {
     try {
         const { id, config } = req.body;
 
@@ -107,77 +136,108 @@ router.post('/configure', requireAuth, async (req, res) => {
             dhcp: isDhcp
         }, req.ip);
 
-        // Apply configuration with nmcli
-        const { execSync } = require('child_process');
-        
+        // Apply network configuration using nmcli (NetworkManager)
         try {
-            // Get connection name for this interface
-            let connectionName;
+            // Resolve connection name from device name (nmcli uses connection names, not device names)
+            let conName = id;
             try {
-                connectionName = execSync(`nmcli -t -f NAME,DEVICE connection show | grep "${id}$" | cut -d: -f1`, { encoding: 'utf-8' }).trim();
-            } catch (e) {
-                connectionName = '';
-            }
-            
-            if (!connectionName) {
-                // Create new connection if it doesn't exist
-                if (isDhcp) {
-                    execSync(`sudo nmcli connection add type ethernet con-name "${id}" ifname "${id}" autoconnect yes`, { encoding: 'utf-8' });
-                } else {
-                    const cidr = subnetToCIDR(config.subnet);
-                    const dnsServers = Array.isArray(config.dns) ? config.dns.join(' ') : (config.dns || '8.8.8.8');
-                    
-                    execSync(`sudo nmcli connection add type ethernet con-name "${id}" ifname "${id}" ` +
-                             `ip4 "${config.ip}/${cidr}" gw4 "${config.gateway}" ` +
-                             `ipv4.dns "${dnsServers}" autoconnect yes`, { encoding: 'utf-8' });
-                }
+                const conList = execFileSync('nmcli', ['-t', '-f', 'NAME,DEVICE', 'con', 'show'], { encoding: 'utf8', timeout: 5000 });
+                const match = conList.split('\n').find(l => l.split(':')[1] === id);
+                if (match) conName = match.split(':')[0];
+            } catch (e) {}
+
+            if (isDhcp) {
+                // Switch to DHCP
+                execFileSync('sudo', ['nmcli', 'con', 'mod', conName, 'ipv4.method', 'auto'], { encoding: 'utf8', timeout: 10000 });
+                execFileSync('sudo', ['nmcli', 'con', 'mod', conName, 'ipv4.addresses', ''], { encoding: 'utf8', timeout: 10000 });
+                execFileSync('sudo', ['nmcli', 'con', 'mod', conName, 'ipv4.gateway', ''], { encoding: 'utf8', timeout: 10000 });
+                execFileSync('sudo', ['nmcli', 'con', 'mod', conName, 'ipv4.dns', ''], { encoding: 'utf8', timeout: 10000 });
             } else {
-                // Modify existing connection
-                if (isDhcp) {
-                    execSync(`sudo nmcli connection modify "${connectionName}" ipv4.method auto`, { encoding: 'utf-8' });
-                    execSync(`sudo nmcli connection modify "${connectionName}" ipv4.addresses ''`, { encoding: 'utf-8' });
-                    execSync(`sudo nmcli connection modify "${connectionName}" ipv4.gateway ''`, { encoding: 'utf-8' });
-                } else {
-                    const cidr = subnetToCIDR(config.subnet);
-                    const dnsServers = Array.isArray(config.dns) ? config.dns.join(' ') : (config.dns || '8.8.8.8');
-                    
-                    execSync(`sudo nmcli connection modify "${connectionName}" ipv4.method manual`, { encoding: 'utf-8' });
-                    execSync(`sudo nmcli connection modify "${connectionName}" ipv4.addresses "${config.ip}/${cidr}"`, { encoding: 'utf-8' });
-                    execSync(`sudo nmcli connection modify "${connectionName}" ipv4.gateway "${config.gateway}"`, { encoding: 'utf-8' });
-                    execSync(`sudo nmcli connection modify "${connectionName}" ipv4.dns "${dnsServers}"`, { encoding: 'utf-8' });
+                // Static IP configuration
+                const ip = config.ip;
+                const subnet = config.subnet || '255.255.255.0';
+                const gateway = config.gateway || '';
+                const dns = Array.isArray(config.dns) ? config.dns.join(' ') : (config.dns || '');
+
+                // Convert subnet mask to CIDR prefix
+                const cidr = subnet.split('.').reduce((acc, octet) => 
+                    acc + (parseInt(octet) >>> 0).toString(2).split('1').length - 1, 0);
+
+                // Set all static IP params in one nmcli call (method manual requires address)
+                const nmcliArgs = ['nmcli', 'con', 'mod', conName,
+                    'ipv4.method', 'manual',
+                    'ipv4.addresses', `${ip}/${cidr}`
+                ];
+                if (gateway) {
+                    nmcliArgs.push('ipv4.gateway', gateway);
                 }
-                
-                // Bring connection down and up
-                execSync(`sudo nmcli connection down "${connectionName}" && sudo nmcli connection up "${connectionName}"`, { encoding: 'utf-8' });
+                if (dns) {
+                    nmcliArgs.push('ipv4.dns', dns);
+                }
+                execFileSync('sudo', nmcliArgs, { encoding: 'utf8', timeout: 10000 });
             }
-            
+
+            // Apply changes by reactivating the connection
+            execFileSync('sudo', ['nmcli', 'con', 'up', conName], { encoding: 'utf8', timeout: 15000 });
+
             res.json({
                 success: true,
-                message: isDhcp ? 'Network configured with DHCP' : `Network configured: ${config.ip}`
+                message: isDhcp 
+                    ? `${id} configurado en modo DHCP` 
+                    : `${id} configurado con IP estática ${config.ip}`
             });
-        } catch (nmcliError) {
-            console.error('nmcli error:', nmcliError);
-            res.status(500).json({ 
-                error: 'Failed to apply network configuration',
-                details: nmcliError.message
-            });
+        } catch (applyErr) {
+            console.error('nmcli apply error:', applyErr.message);
+            
+            // Fallback: try dhcpcd for older systems
+            try {
+                const dhcpcdConf = '/etc/dhcpcd.conf';
+                if (fs.existsSync(dhcpcdConf)) {
+                    let content = fs.readFileSync(dhcpcdConf, 'utf8');
+                    
+                    // Remove existing static config for this interface
+                    const regex = new RegExp(`\\n?interface ${id}[\\s\\S]*?(?=\\ninterface |$)`, 'g');
+                    content = content.replace(regex, '');
+                    
+                    if (!isDhcp) {
+                        const subnet = config.subnet || '255.255.255.0';
+                        const cidr = subnet.split('.').reduce((acc, octet) => 
+                            acc + (parseInt(octet) >>> 0).toString(2).split('1').length - 1, 0);
+                        
+                        content += `\ninterface ${id}\nstatic ip_address=${config.ip}/${cidr}\n`;
+                        if (config.gateway) content += `static routers=${config.gateway}\n`;
+                        if (config.dns) {
+                            const dnsStr = Array.isArray(config.dns) ? config.dns.join(' ') : config.dns;
+                            content += `static domain_name_servers=${dnsStr}\n`;
+                        }
+                    }
+                    
+                    fs.writeFileSync(dhcpcdConf, content);
+                    execFileSync('sudo', ['systemctl', 'restart', 'dhcpcd'], { encoding: 'utf8', timeout: 15000 });
+                    
+                    res.json({
+                        success: true,
+                        message: isDhcp 
+                            ? `${id} configurado en modo DHCP (dhcpcd)` 
+                            : `${id} configurado con IP estática ${config.ip} (dhcpcd)`
+                    });
+                } else {
+                    res.json({
+                        success: false,
+                        message: 'NetworkManager no disponible y dhcpcd no encontrado. Configura la red manualmente.'
+                    });
+                }
+            } catch (dhcpcdErr) {
+                console.error('dhcpcd fallback error:', dhcpcdErr.message);
+                res.status(500).json({ 
+                    error: `No se pudo aplicar la configuración: ${applyErr.message}` 
+                });
+            }
         }
     } catch (e) {
         console.error('Network config error:', e);
         res.status(500).json({ error: 'Failed to configure network' });
     }
 });
-
-// Helper: Convert subnet mask to CIDR notation
-function subnetToCIDR(subnet) {
-    const parts = subnet.split('.'). map(Number);
-    let cidr = 0;
-    
-    for (const part of parts) {
-        cidr += part.toString(2).split('1').length - 1;
-    }
-    
-    return cidr;
-}
 
 module.exports = router;
