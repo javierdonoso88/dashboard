@@ -50,6 +50,13 @@ router.get('/check', requireAuth, async (req, res) => {
                 console.error('Git status check failed:', e.message);
             }
 
+            // Ensure git safe directory is set (sudo changes HOME)
+            try {
+                execFileSync('sudo', ['git', 'config', '--global', '--add', 'safe.directory', INSTALL_DIR], {
+                    encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe']
+                });
+            } catch (e) {}
+
             // SECURITY: Use execFileSync with explicit arguments
             execFileSync('sudo', ['git', 'fetch', 'origin', '--quiet'], {
                 cwd: INSTALL_DIR,
@@ -93,8 +100,9 @@ router.get('/check', requireAuth, async (req, res) => {
                 }
             }
         } catch (e) {
-            // Git fetch failed, maybe no internet
+            // Git fetch failed, maybe no internet or permissions
             console.error('Update check failed:', e.message);
+            changelog = `Error checking updates: ${e.message}`;
         }
 
         res.json({

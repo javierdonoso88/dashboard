@@ -16,7 +16,7 @@ const { logSecurityEvent } = require('../utils/security');
 const { notifyBadblocksComplete } = require('../utils/health-monitor');
 const { getData, saveData } = require('../utils/data');
 const { validateSession } = require('../utils/session');
-const { sanitizeDiskId, validateDiskConfig } = require('../utils/sanitize');
+const { sanitizeDiskId, validateDiskConfig, sanitizePathWithinBase } = require('../utils/sanitize');
 
 const STORAGE_MOUNT_BASE = '/mnt/disks';
 const POOL_MOUNT = '/mnt/storage';
@@ -472,11 +472,12 @@ exclude .fseventsd
             // May not be mounted
         }
 
-        // If cache disks present: use lfs (least free space) so writes go to cache first,
+        // If cache disks present: use ff (fill first) so writes go to cache SSD first,
         // moveonenospc to overflow to data disks when cache is full
+        // ff fills the first listed disk (cache) before moving to next (data HDDs)
         const hasCache = cacheMounts.length > 0;
-        const createPolicy = hasCache ? 'lfs' : 'mfs';
-        const cacheOpts = hasCache ? ',moveonenospc=true,minfreespace=20G' : '';
+        const createPolicy = hasCache ? 'ff' : 'mfs';
+        const cacheOpts = hasCache ? ',moveonenospc=true,minfreespace=10G' : '';
         const mergerfsOpts = `defaults,allow_other,nonempty,use_ino,cache.files=partial,dropcacheonclose=true,category.create=${createPolicy}${cacheOpts}`;
         execFileSync('sudo', ['mergerfs', '-o', mergerfsOpts, mergerfsSource, POOL_MOUNT], { encoding: 'utf8', timeout: 60000 });
         results.push(`MergerFS pool mounted at ${POOL_MOUNT}`);
@@ -757,6 +758,13 @@ router.get('/disks/detect', requireAuth, async (req, res) => {
             if (dev.size < 1000000000) continue;
             // Skip mmcblk (SD card, usually boot)
             if (dev.name.startsWith('mmcblk')) continue;
+            // Skip phantom disks (SATA ports without drives)
+            try { fs.statSync(`/dev/${dev.name}`); } catch { continue; }
+            // Skip ghost SATA devices: phantom ports have numeric model AND size 0 or no partitions
+            // Real disks behind USB/SATA bridges (JMB585) can also report "456" but have real size + partitions
+            const devModel = (dev.model || '').trim();
+            const isPhantom = (!devModel || /^\d+$/.test(devModel)) && dev.size < 1000000000;
+            if (isPhantom) continue;
 
             const diskInfo = {
                 id: dev.name,
@@ -808,6 +816,266 @@ router.get('/disks/detect', requireAuth, async (req, res) => {
         res.status(500).json({ error: 'Failed to detect disks' });
     }
 });
+
+/**
+ * GET /cache/status - Cache disk status and MergerFS policy info
+ */
+router.get('/cache/status', requireAuth, async (req, res) => {
+    try {
+        const data = getData();
+        const storageConfig = data.storageConfig || [];
+        const cacheDisks = storageConfig.filter(d => d.role === 'cache');
+        const dataDisks = storageConfig.filter(d => d.role === 'data');
+
+        if (cacheDisks.length === 0) {
+            return res.json({
+                hasCache: false,
+                message: 'No cache disks configured'
+            });
+        }
+
+        // Get cache disk usage
+        const cacheInfo = [];
+        for (let i = 0; i < cacheDisks.length; i++) {
+            const mountPoint = `${STORAGE_MOUNT_BASE}/cache${i + 1}`;
+            try {
+                const dfOutput = execFileSync('df', ['-B1', mountPoint], {
+                    encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'ignore']
+                });
+                const lines = dfOutput.trim().split('\n');
+                if (lines.length >= 2) {
+                    const parts = lines[1].split(/\s+/);
+                    const total = parseInt(parts[1]) || 0;
+                    const used = parseInt(parts[2]) || 0;
+                    const available = parseInt(parts[3]) || 0;
+                    const usagePercent = parseInt(parts[4]) || 0;
+
+                    cacheInfo.push({
+                        disk: cacheDisks[i].id,
+                        mountPoint,
+                        total,
+                        used,
+                        available,
+                        usagePercent,
+                        totalFormatted: formatBytes(total),
+                        usedFormatted: formatBytes(used),
+                        availableFormatted: formatBytes(available)
+                    });
+                }
+            } catch (e) {
+                cacheInfo.push({ disk: cacheDisks[i].id, mountPoint, error: 'Not mounted' });
+            }
+        }
+
+        // Get MergerFS policy info
+        let mergerfsPolicy = {};
+        try {
+            const mountOutput = execFileSync('mount', [], { encoding: 'utf8', timeout: 5000 });
+            const mergerfsLine = mountOutput.split('\n').find(l => l.includes('mergerfs') && l.includes(POOL_MOUNT));
+            if (mergerfsLine) {
+                const optsMatch = mergerfsLine.match(/\(([^)]+)\)/);
+                if (optsMatch) {
+                    const opts = optsMatch[1];
+                    const createMatch = opts.match(/category\.create=(\w+)/);
+                    const moveMatch = opts.match(/moveonenospc=(\w+)/);
+                    const minFreeMatch = opts.match(/minfreespace=(\S+?)(?:,|$)/);
+                    mergerfsPolicy = {
+                        createPolicy: createMatch ? createMatch[1] : 'unknown',
+                        moveOnNoSpace: moveMatch ? moveMatch[1] === 'true' : false,
+                        minFreeSpace: minFreeMatch ? minFreeMatch[1] : null
+                    };
+                }
+            }
+        } catch (e) {}
+
+        // Count files on cache vs data (quick sample using find, limited)
+        let cacheFileCount = 0;
+        let dataFileCount = 0;
+        try {
+            for (const c of cacheInfo) {
+                if (!c.error) {
+                    const count = execFileSync('find', [c.mountPoint, '-type', 'f', '-maxdepth', '3'], {
+                        encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'ignore']
+                    }).trim().split('\n').filter(l => l).length;
+                    cacheFileCount += count;
+                }
+            }
+            // Count data disk files (sample)
+            for (let i = 0; i < Math.min(dataDisks.length, 2); i++) {
+                const mountPoint = `${STORAGE_MOUNT_BASE}/disk${i + 1}`;
+                try {
+                    const count = execFileSync('find', [mountPoint, '-type', 'f', '-maxdepth', '3'], {
+                        encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'ignore']
+                    }).trim().split('\n').filter(l => l).length;
+                    dataFileCount += count;
+                } catch (e) {}
+            }
+        } catch (e) {}
+
+        // Cache mover status
+        let moverStatus = { enabled: false };
+        try {
+            const timerState = execFileSync('systemctl', ['is-active', 'homepinas-cache-mover.timer'], {
+                encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe']
+            }).trim();
+            moverStatus.enabled = timerState === 'active';
+            // Read last log entries
+            try {
+                const log = execFileSync('tail', ['-5', '/var/log/homepinas-cache-mover.log'], {
+                    encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe']
+                }).trim();
+                moverStatus.lastLog = log.split('\n').filter(l => l);
+            } catch (e) {}
+            // Read config
+            try {
+                const conf = fs.readFileSync('/usr/local/bin/homepinas-cache-mover.conf', 'utf8');
+                const ageMatch = conf.match(/CACHE_AGE_MINUTES=(\d+)/);
+                const threshMatch = conf.match(/CACHE_USAGE_THRESHOLD=(\d+)/);
+                moverStatus.ageMinutes = ageMatch ? parseInt(ageMatch[1]) : 120;
+                moverStatus.usageThreshold = threshMatch ? parseInt(threshMatch[1]) : 80;
+            } catch (e) {}
+        } catch (e) {
+            moverStatus.enabled = false;
+        }
+
+        res.json({
+            hasCache: true,
+            cacheDisks: cacheInfo,
+            dataDisksCount: dataDisks.length,
+            policy: mergerfsPolicy,
+            mover: moverStatus,
+            fileCounts: {
+                cache: cacheFileCount,
+                data: dataFileCount,
+                note: 'Approximate (sampled to depth 3)'
+            }
+        });
+    } catch (e) {
+        console.error('Cache status error:', e);
+        res.status(500).json({ error: 'Failed to get cache status' });
+    }
+});
+
+/**
+ * GET /file-location - Get physical disk location of a file in the MergerFS pool
+ * Query: ?path=/mnt/storage/some/file.txt
+ */
+router.get('/file-location', requireAuth, async (req, res) => {
+    try {
+        const filePath = req.query.path;
+        if (!filePath) {
+            return res.status(400).json({ error: 'Path parameter required' });
+        }
+
+        // Validate path is within pool
+        const safePath = sanitizePathWithinBase(filePath.replace(/^\/mnt\/storage\//, ''), POOL_MOUNT);
+        if (!safePath) {
+            return res.status(400).json({ error: 'Path must be within the storage pool' });
+        }
+
+        // Use getfattr to get the source mount from MergerFS
+        let location = 'unknown';
+        let diskType = 'unknown';
+        try {
+            const xattrOutput = execFileSync('getfattr', ['-n', 'user.mergerfs.srcpath', '--only-values', safePath], {
+                encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'ignore']
+            }).trim();
+
+            if (xattrOutput) {
+                location = xattrOutput;
+                // Determine if cache or data
+                if (xattrOutput.includes('/cache')) {
+                    diskType = 'cache';
+                } else if (xattrOutput.includes('/disk')) {
+                    diskType = 'data';
+                }
+            }
+        } catch (e) {
+            // getfattr might not be installed or file doesn't support xattrs
+            // Fallback: check which underlying mount contains this file
+            try {
+                const relativePath = safePath.replace(POOL_MOUNT, '');
+                const data = getData();
+                const config = data.storageConfig || [];
+                
+                for (const disk of config) {
+                    const mountBase = disk.role === 'cache' ? 'cache' : 'disk';
+                    const idx = config.filter(d => d.role === disk.role).indexOf(disk) + 1;
+                    const checkPath = `${STORAGE_MOUNT_BASE}/${mountBase}${idx}${relativePath}`;
+                    try {
+                        fs.statSync(checkPath);
+                        location = `${STORAGE_MOUNT_BASE}/${mountBase}${idx}`;
+                        diskType = disk.role;
+                        break;
+                    } catch (e2) {}
+                }
+            } catch (e2) {}
+        }
+
+        res.json({
+            path: filePath,
+            physicalLocation: location,
+            diskType
+        });
+    } catch (e) {
+        console.error('File location error:', e);
+        res.status(500).json({ error: 'Failed to get file location' });
+    }
+});
+
+/**
+ * POST /file-locations - Batch get physical locations for multiple files
+ * Body: { paths: ["/mnt/storage/file1", "/mnt/storage/file2", ...] }
+ * Returns: { locations: { "/mnt/storage/file1": { diskType: "cache"|"data", physicalLocation: "..." }, ... } }
+ */
+router.post('/file-locations', requireAuth, async (req, res) => {
+    try {
+        const { paths } = req.body;
+        if (!Array.isArray(paths) || paths.length === 0) {
+            return res.status(400).json({ error: 'paths array required' });
+        }
+
+        // Limit to 100 files per batch
+        const limitedPaths = paths.slice(0, 100);
+        const locations = {};
+
+        for (const filePath of limitedPaths) {
+            const safePath = sanitizePathWithinBase(
+                filePath.replace(/^\/mnt\/storage\//, ''),
+                POOL_MOUNT
+            );
+            if (!safePath) continue;
+
+            try {
+                const xattr = execFileSync('getfattr', ['-n', 'user.mergerfs.srcpath', '--only-values', safePath], {
+                    encoding: 'utf8', timeout: 2000, stdio: ['pipe', 'pipe', 'ignore']
+                }).trim();
+
+                if (xattr) {
+                    locations[filePath] = {
+                        diskType: xattr.includes('/cache') ? 'cache' : xattr.includes('/disk') ? 'data' : 'unknown',
+                        physicalLocation: xattr
+                    };
+                }
+            } catch (e) {
+                // File may not exist on mergerfs or getfattr not available
+            }
+        }
+
+        res.json({ locations });
+    } catch (e) {
+        console.error('Batch file locations error:', e);
+        res.status(500).json({ error: 'Failed to get file locations' });
+    }
+});
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
 
 /**
  * Add a disk to the MergerFS pool
@@ -1622,7 +1890,7 @@ WantedBy=multi-user.target
  */
 function updateMergerFSSystemdUnit(sources, policy = 'mfs') {
     const hasCache = sources.includes('cache');
-    const policyToUse = hasCache ? 'lfs' : policy;
+    const policyToUse = hasCache ? 'ff' : policy;
     const options = `defaults,allow_other,nonempty,use_ino,cache.files=partial,dropcacheonclose=true,category.create=${policyToUse},moveonenospc=true`;
     
     // Extract mount points from sources

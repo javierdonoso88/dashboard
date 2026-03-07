@@ -465,8 +465,11 @@ function startGlobalPolling() {
             if (res.ok) {
                 state.globalStats = await res.json();
 
-                // Re-render dashboard if active to show real-time changes
-                if (state.currentView === "dashboard") renderDashboard();
+                // Re-render dashboard if still on dashboard view
+                // Do NOT increment renderGeneration — only user navigation does that
+                if (state.currentView === "dashboard") {
+                    renderDashboard();
+                }
             }
         } catch (e) {
             // Session expired - authFetch handles redirect, stop polling
@@ -476,7 +479,7 @@ function startGlobalPolling() {
             }
             console.error('Stats polling error:', e);
         }
-    }, 2000);
+    }, 5000);
 
     // Polling Public IP
     updatePublicIP();
@@ -1277,6 +1280,87 @@ function clearWizardState() {
 function initStorageSetup() {
     console.log('[Wizard] Initializing storage setup wizard');
     
+    // Setup network config toggle in wizard
+    const netToggle = document.getElementById('wizard-net-toggle');
+    const netForm = document.getElementById('wizard-network-form');
+    if (netToggle && netForm) {
+        netToggle.addEventListener('click', async () => {
+            const isOpen = netForm.style.display !== 'none';
+            netForm.style.display = isOpen ? 'none' : 'block';
+            netToggle.textContent = isOpen ? '🌐 Configurar Red (opcional) ▸' : '🌐 Configurar Red (opcional) ▾';
+            if (!isOpen && !netForm.dataset.loaded) {
+                try {
+                    const res = await authFetch(`${API_BASE}/network/interfaces`);
+                    if (res.ok) {
+                        const ifaces = await res.json();
+                        const container = document.getElementById('wizard-net-iface-container');
+                        if (container && ifaces.length > 0) {
+                            const iface = ifaces[0]; // Primary interface
+                            const isDhcp = iface.dhcp !== false;
+                            container.innerHTML = `
+                                <div class="input-group">
+                                    <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+                                        <input type="checkbox" id="wizard-net-dhcp" ${isDhcp ? 'checked' : ''}>
+                                        DHCP (automático)
+                                    </label>
+                                </div>
+                                <div id="wizard-net-static" style="display:${isDhcp ? 'none' : 'block'}">
+                                    <div class="input-group"><input type="text" id="wizard-net-ip" value="${escapeHtml(iface.ip || '')}" placeholder=" "><label>IP</label></div>
+                                    <div class="input-group"><input type="text" id="wizard-net-subnet" value="${escapeHtml(iface.subnet || '255.255.255.0')}" placeholder=" "><label>Máscara</label></div>
+                                    <div class="input-group"><input type="text" id="wizard-net-gw" value="${escapeHtml(iface.gateway || '')}" placeholder=" "><label>Puerta de Enlace</label></div>
+                                    <div class="input-group"><input type="text" id="wizard-net-dns" value="${escapeHtml(iface.dns || '')}" placeholder=" "><label>DNS</label></div>
+                                </div>
+                                <button class="wizard-btn wizard-btn-next" id="wizard-net-save" style="margin-top:10px;">💾 Aplicar</button>
+                                <span id="wizard-net-status" style="margin-left:10px;"></span>
+                            `;
+                            document.getElementById('wizard-net-dhcp').addEventListener('change', (e) => {
+                                document.getElementById('wizard-net-static').style.display = e.target.checked ? 'none' : 'block';
+                            });
+                            document.getElementById('wizard-net-save').addEventListener('click', async () => {
+                                const statusEl = document.getElementById('wizard-net-status');
+                                const isDhcpChecked = document.getElementById('wizard-net-dhcp').checked;
+                                const config = { dhcp: isDhcpChecked };
+                                if (!isDhcpChecked) {
+                                    config.ip = document.getElementById('wizard-net-ip').value.trim();
+                                    config.subnet = document.getElementById('wizard-net-subnet').value.trim();
+                                    config.gateway = document.getElementById('wizard-net-gw').value.trim();
+                                    config.dns = document.getElementById('wizard-net-dns').value.trim();
+                                }
+                                try {
+                                    statusEl.textContent = '⏳ Aplicando...';
+                                    const r = await authFetch(`${API_BASE}/network/configure`, {
+                                        method: 'POST',
+                                        body: JSON.stringify({ id: iface.id, config })
+                                    });
+                                    const d = await r.json();
+                                    if (r.ok) {
+                                        statusEl.textContent = '✅ Aplicado';
+                                        if (!isDhcpChecked && config.ip && config.ip !== window.location.hostname) {
+                                            setTimeout(() => {
+                                                if (confirm('IP cambiada a ' + config.ip + '. ¿Ir a la nueva dirección?')) {
+                                                    const url = new URL(window.location);
+                                                    url.hostname = config.ip;
+                                                    window.location.href = url.toString();
+                                                }
+                                            }, 1000);
+                                        }
+                                    } else {
+                                        statusEl.textContent = '❌ ' + (d.error || 'Error');
+                                    }
+                                } catch (err) {
+                                    statusEl.textContent = '❌ ' + err.message;
+                                }
+                            });
+                            netForm.dataset.loaded = '1';
+                        }
+                    }
+                } catch (e) {
+                    console.error('Wizard network load error:', e);
+                }
+            }
+        });
+    }
+
     // Load any saved state
     const hasSavedState = loadWizardState();
     
@@ -2363,12 +2447,13 @@ if (headerThemeToggle) {
         const currentTheme = html.getAttribute('data-theme') || 'light';
         const newTheme = currentTheme === 'light' ? 'dark' : 'light';
         html.setAttribute('data-theme', newTheme);
-        localStorage.setItem('theme', newTheme);
+        localStorage.setItem('homepinas-theme', newTheme);
         headerThemeToggle.textContent = newTheme === 'dark' ? '☀️' : '🌙';
     });
     
-    // Set initial icon
-    const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+    // Set initial icon from saved theme
+    const currentTheme = localStorage.getItem('homepinas-theme') || document.documentElement.getAttribute('data-theme') || 'light';
+    document.documentElement.setAttribute('data-theme', currentTheme);
     headerThemeToggle.textContent = currentTheme === 'dark' ? '☀️' : '🌙';
 }
 
@@ -2384,7 +2469,11 @@ function updateUserAvatar() {
     }
 }
 
+// Render generation counter to prevent race conditions between async renders
+let renderGeneration = 0;
+
 async function renderContent(view) {
+    const thisRender = ++renderGeneration;
     state.currentView = view;
     dashboardContent.innerHTML = '';
     
@@ -2426,6 +2515,7 @@ async function renderContent(view) {
 
 // Real-Time Dashboard
 async function renderDashboard() {
+    if (state.currentView !== 'dashboard') return;
     const stats = state.globalStats;
     const cpuTemp = Number(stats.cpuTemp) || 0;
     const cpuLoad = Number(stats.cpuLoad) || 0;
@@ -2564,6 +2654,9 @@ async function renderDashboard() {
         console.error('Error fetching disks:', e);
         disksHtml = `<div class="no-disks">${t('storage.unableToLoad', 'No se pudo cargar la información de discos')}</div>`;
     }
+
+    // Abort if user navigated away from dashboard during async fetches
+    if (state.currentView !== 'dashboard') return;
 
     dashboardContent.innerHTML = `
         <div class="glass-card overview-card dash-overview-full">
@@ -2905,14 +2998,17 @@ async function renderStorageDashboard() {
     
     try {
         // Fetch disks and pool status
-        const [disksRes, poolRes, iostatsRes] = await Promise.all([
+        const [disksRes, poolRes, iostatsRes, cacheRes] = await Promise.all([
             authFetch(`${API_BASE}/system/disks`),
             authFetch(`${API_BASE}/storage/pool/status`),
-            authFetch(`${API_BASE}/storage/disks/iostats`)
+            authFetch(`${API_BASE}/storage/disks/iostats`),
+            authFetch(`${API_BASE}/storage/cache/status`).catch(() => null)
         ]);
         
         if (disksRes.ok) state.disks = await disksRes.json();
         let poolStatus = {};
+        let cacheStatus = null;
+        if (cacheRes && cacheRes.ok) cacheStatus = await cacheRes.json();
         if (poolRes.ok) poolStatus = await poolRes.json();
 
         let iostats = {};
@@ -3038,6 +3134,79 @@ async function renderStorageDashboard() {
 
         arrayCard.appendChild(mountsGrid);
         dashboardContent.appendChild(arrayCard);
+
+        // Cache status card (if cache disks present)
+        if (cacheStatus && cacheStatus.hasCache) {
+            const cacheCard = document.createElement('div');
+            cacheCard.className = 'glass-card dash-overview-full';
+            cacheCard.style.gridColumn = '1 / -1';
+
+            let cacheDiskHtml = cacheStatus.cacheDisks.map(c => {
+                if (c.error) return `<div class="cache-disk-item" style="color: var(--text-dim);">⚠️ ${escapeHtml(c.disk)}: ${escapeHtml(c.error)}</div>`;
+                const pct = c.usagePercent || 0;
+                const barColor = pct > 85 ? '#ef4444' : pct > 60 ? '#f59e0b' : '#10b981';
+                return `
+                    <div class="cache-disk-item" style="margin-bottom: 12px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="font-weight: 600;">⚡ ${escapeHtml(c.disk)}</span>
+                            <span style="font-size: 0.85rem; color: var(--text-dim);">${escapeHtml(c.usedFormatted)} / ${escapeHtml(c.totalFormatted)}</span>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.1); border-radius: 6px; height: 8px; overflow: hidden;">
+                            <div style="background: ${barColor}; height: 100%; width: ${pct}%; border-radius: 6px; transition: width 0.3s;"></div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-dim); margin-top: 4px;">
+                            <span>${pct}% usado</span>
+                            <span>${escapeHtml(c.availableFormatted)} libre</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            const policyHtml = cacheStatus.policy ? `
+                <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--card-border, rgba(255,255,255,0.1));">
+                    <span style="font-size: 0.8rem; padding: 4px 10px; background: rgba(99,102,241,0.15); border-radius: 6px; color: var(--primary, #6366f1);">
+                        📝 Escritura: <strong>${escapeHtml(cacheStatus.policy.createPolicy || '?')}</strong>
+                    </span>
+                    ${cacheStatus.policy.moveOnNoSpace ? '<span style="font-size: 0.8rem; padding: 4px 10px; background: rgba(16,185,129,0.15); border-radius: 6px; color: #10b981;">✅ Auto-mover si caché llena</span>' : ''}
+                    ${cacheStatus.policy.minFreeSpace ? `<span style="font-size: 0.8rem; padding: 4px 10px; background: rgba(245,158,11,0.15); border-radius: 6px; color: #f59e0b;">📏 Min libre: ${escapeHtml(cacheStatus.policy.minFreeSpace)}</span>` : ''}
+                </div>
+            ` : '';
+
+            const fileCountHtml = cacheStatus.fileCounts ? `
+                <div style="display: flex; gap: 20px; margin-top: 10px; font-size: 0.85rem;">
+                    <span>⚡ Caché: <strong>${cacheStatus.fileCounts.cache}</strong> archivos</span>
+                    <span>💿 Datos: <strong>${cacheStatus.fileCounts.data}</strong> archivos</span>
+                </div>
+            ` : '';
+
+            const moverHtml = cacheStatus.mover ? `
+                <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center;">
+                    <span style="font-size: 0.8rem; padding: 4px 10px; background: ${cacheStatus.mover.enabled ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'}; border-radius: 6px; color: ${cacheStatus.mover.enabled ? '#10b981' : '#ef4444'};">
+                        ${cacheStatus.mover.enabled ? '🔄 Mover activo' : '⏸️ Mover inactivo'}
+                    </span>
+                    ${cacheStatus.mover.ageMinutes ? `<span style="font-size: 0.8rem; color: var(--text-dim);">Mueve archivos >${Math.floor(cacheStatus.mover.ageMinutes / 60)}h a HDD</span>` : ''}
+                    ${cacheStatus.mover.usageThreshold ? `<span style="font-size: 0.8rem; color: var(--text-dim);">Emergencia al ${cacheStatus.mover.usageThreshold}%</span>` : ''}
+                </div>
+                ${cacheStatus.mover.lastLog && cacheStatus.mover.lastLog.length > 0 ? `
+                    <div style="margin-top: 8px; font-size: 0.75rem; color: var(--text-dim); font-family: monospace; max-height: 60px; overflow-y: auto;">
+                        ${cacheStatus.mover.lastLog.map(l => escapeHtml(l)).join('<br>')}
+                    </div>
+                ` : ''}
+            ` : '';
+
+            cacheCard.innerHTML = `
+                <div style="margin-bottom: 15px;">
+                    <h3 style="margin: 0 0 4px 0;">⚡ Estado de la Caché</h3>
+                    <span style="font-size: 0.8rem; color: var(--text-dim);">${cacheStatus.cacheDisks.length} disco(s) SSD/NVMe como caché de escritura</span>
+                </div>
+                ${cacheDiskHtml}
+                ${fileCountHtml}
+                ${policyHtml}
+                ${moverHtml}
+            `;
+
+            dashboardContent.appendChild(cacheCard);
+        }
 
         // =================================================================
         // DISK HEALTH PANEL - Global health status for all disks
@@ -3649,6 +3818,29 @@ async function renderDockerManager() {
                 if (portsDiv.children.length > 0) {
                     card.appendChild(portsDiv);
                 }
+            }
+
+            // Volumes/Mounts section
+            if (container.mounts && container.mounts.length > 0) {
+                const mountsDiv = document.createElement('div');
+                mountsDiv.className = 'docker-mounts';
+                mountsDiv.style.cssText = 'margin-bottom: 12px; padding: 8px 10px; background: rgba(255,255,255,0.03); border-radius: 8px; border-left: 3px solid var(--accent, #6366f1);';
+                
+                const mountsLabel = document.createElement('div');
+                mountsLabel.style.cssText = 'font-size: 0.7rem; color: var(--text-dim); margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;';
+                mountsLabel.textContent = `📂 ${t('docker.volumes', 'Volúmenes')}`;
+                mountsDiv.appendChild(mountsLabel);
+                
+                container.mounts.forEach(m => {
+                    const mountRow = document.createElement('div');
+                    mountRow.style.cssText = 'font-size: 0.75rem; color: var(--text-secondary, #aaa); padding: 3px 0; display: flex; align-items: center; gap: 4px; word-break: break-all;';
+                    const shortSource = m.source.length > 35 ? '…' + m.source.slice(-32) : m.source;
+                    const rwBadge = m.rw ? '' : ' <span style="color: #f59e0b; font-size: 0.65rem;">RO</span>';
+                    mountRow.innerHTML = `<span style="color: var(--text-dim);" title="${escapeHtml(m.source)}">${escapeHtml(shortSource)}</span> <span style="color: var(--text-dim); opacity: 0.5;">→</span> <span title="${escapeHtml(m.destination)}">${escapeHtml(m.destination)}</span>${rwBadge}`;
+                    mountsDiv.appendChild(mountRow);
+                });
+                
+                card.appendChild(mountsDiv);
             }
 
             // Controls row
@@ -4335,7 +4527,7 @@ async function renderNetworkManager() {
         header.appendChild(headerInfo);
         header.appendChild(checkboxItem);
 
-        // Create form
+        // Create form — reuse renderNetForm to avoid duplication
         const netForm = document.createElement('div');
         netForm.className = 'net-form';
         netForm.id = `netform-${iface.id}`;
@@ -4520,7 +4712,7 @@ function renderNetForm(netForm, iface, isDhcp) {
         const dnsInput = document.createElement('input');
         dnsInput.type = 'text';
         dnsInput.id = `dns-${iface.id}`;
-        dnsInput.value = '';
+        dnsInput.value = iface.dns || '';
         dnsInput.placeholder = ' ';
         const dnsLabel = document.createElement('label');
         dnsLabel.textContent = t('network.dns', 'DNS') + ' (ej: 8.8.8.8)';
@@ -4600,10 +4792,23 @@ async function applyNetwork(interfaceId) {
             throw new Error(data.error || 'Network configuration failed');
         }
 
-        alert(data.message || t('common.saved', 'Configuración guardada'));
+        showToast(data.message || t('common.saved', 'Configuración guardada'), 'success');
+        // If IP changed, warn user they may need to reconnect
+        if (!isDhcp && config.ip) {
+            const currentUrl = new URL(window.location);
+            const currentHost = currentUrl.hostname;
+            if (config.ip !== currentHost) {
+                setTimeout(() => {
+                    if (confirm(`IP cambiada a ${config.ip}. ¿Quieres ir a la nueva dirección?`)) {
+                        currentUrl.hostname = config.ip;
+                        window.location.href = currentUrl.toString();
+                    }
+                }, 1500);
+            }
+        }
     } catch (e) {
         console.error('Network config error:', e);
-        alert(e.message || t('common.error', 'Error al aplicar configuración de red'));
+        showToast(e.message || t('common.error', 'Error al aplicar configuración de red'), 'error');
     }
 }
 
@@ -6501,6 +6706,30 @@ function renderFilesList(container, files, filePath) {
 
         container.appendChild(row);
     });
+
+    // Lazy-load file location badges (only if path is within /mnt/storage)
+    if (filePath.startsWith('/mnt/storage') || filePath === '/') {
+        const filePaths = files.filter(f => f.type !== 'directory').map(f => filePath + '/' + f.name);
+        if (filePaths.length > 0) {
+            authFetch(`${API_BASE}/storage/file-locations`, {
+                method: 'POST',
+                body: JSON.stringify({ paths: filePaths })
+            }).then(r => r.json()).then(data => {
+                if (!data.locations) return;
+                container.querySelectorAll('.fm-row').forEach(row => {
+                    const loc = data.locations[row.dataset.path];
+                    if (loc) {
+                        const badge = document.createElement('span');
+                        badge.className = 'fm-location-badge fm-location-' + loc.diskType;
+                        badge.title = loc.physicalLocation || '';
+                        badge.textContent = loc.diskType === 'cache' ? '⚡' : '💿';
+                        const nameEl = row.querySelector('.fm-file-name');
+                        if (nameEl) nameEl.appendChild(badge);
+                    }
+                });
+            }).catch(() => {}); // Silently fail if endpoint not available
+        }
+    }
 }
 
 // ── Render grid view ──
@@ -7260,6 +7489,8 @@ function showFileContextMenu(e, filePath, file) {
         { icon: '📋', label: 'Copiar', action: () => { fmClipboard = { action: 'copy', files: [{ path: filePath, name: file.name }] }; renderFilesView(); } },
         { icon: '✂️', label: 'Mover', action: () => { fmClipboard = { action: 'cut', files: [{ path: filePath, name: file.name }] }; renderFilesView(); } },
         { divider: true },
+        { icon: '📍', label: 'Ver ubicación', action: () => showFileLocation(filePath) },
+        { divider: true },
         { icon: '🗑️', label: 'Eliminar', action: () => deleteFile(filePath, file.name), danger: true },
     ];
 
@@ -7283,6 +7514,22 @@ function showFileContextMenu(e, filePath, file) {
     setTimeout(() => {
         document.addEventListener('click', () => menu.remove(), { once: true });
     }, 10);
+}
+
+// Show physical disk location of a file (cache vs data pool)
+async function showFileLocation(filePath) {
+    try {
+        const res = await authFetch(`${API_BASE}/storage/file-location?path=${encodeURIComponent(filePath)}`);
+        const data = await res.json();
+
+        const typeIcon = data.diskType === 'cache' ? '⚡' : data.diskType === 'data' ? '💿' : '❓';
+        const typeName = data.diskType === 'cache' ? 'Caché (SSD/NVMe)' : data.diskType === 'data' ? 'Pool de datos (HDD)' : 'Desconocido';
+        const typeColor = data.diskType === 'cache' ? '#f59e0b' : data.diskType === 'data' ? '#6366f1' : '#888';
+
+        showNotification(`${typeIcon} ${escapeHtml(filePath.split('/').pop())}: ${typeName} (${escapeHtml(data.physicalLocation)})`, 'info');
+    } catch (e) {
+        showNotification('No se pudo determinar la ubicación del archivo', 'error');
+    }
 }
 
 // =============================================================================

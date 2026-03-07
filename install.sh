@@ -2,10 +2,10 @@
 
 # HomePiNAS - Premium Dashboard for Raspberry Pi / Debian / Ubuntu
 # Universal Installer with automatic OS detection
-# Version: 2.10.7 (Homelabs.club Edition)
+# Version: 2.10.8 (Homelabs.club Edition)
 
 # Version - CHANGE THIS FOR EACH RELEASE
-APP_VERSION="2.10.7"
+APP_VERSION="2.12.0"
 
 # Parse command line arguments
 CLEAN_INSTALL=false
@@ -348,6 +348,9 @@ echo -e "${BLUE}Installing system packages...${NC}"
 install_package_safe "git" ""
 install_package_safe "build-essential" "base-devel"
 install_package_safe "smartmontools" ""
+install_package_safe "i2c-tools" ""
+# Ensure i2c-dev module loads at boot (required for EMC2305 fan control)
+echo "i2c-dev" | tee /etc/modules-load.d/i2c-dev.conf > /dev/null 2>&1
 install_package_safe "lm-sensors" "sensors"
 install_package_safe "pigz" ""
 install_package_safe "samba" ""
@@ -946,12 +949,29 @@ fi
 echo -e "${BLUE}Creating fan control script with hysteresis...${NC}"
 cat > "$FANCTL_SCRIPT" <<'FANEOF'
 #!/bin/bash
-# HomePiNAS Fan Control Script for EMC2305
-# Controls PWM fans based on CPU and disk temperatures
-# Version 1.5.5: Added hysteresis to prevent fan speed oscillation
+# HomePiNAS Fan Control Script
+# Controls PWM fans via sysfs (pwmfan) + I2C (EMC2305)
+# Version 2.0.0: Multi-backend support (sysfs + i2c)
+#
+# PWM1 curve → EMC2305 fans (case/disk fans) via I2C
+# PWM2 curve → pwmfan (RPi CPU fan) via sysfs
 
 CONFIG_FILE="/usr/local/bin/homepinas-fanctl.conf"
 STATE_FILE="/tmp/homepinas-fanctl.state"
+
+# I2C settings for EMC2305
+EMC_BUS=10
+EMC_ADDR=0x2e
+EMC_FAN1_REG=0x30
+EMC_FAN2_REG=0x40
+I2CSET=/usr/sbin/i2cset
+
+# Ensure i2c-dev is loaded and EMC2305 kernel driver is unbound for manual control
+modprobe i2c-dev 2>/dev/null
+if [ -e /sys/bus/i2c/drivers/emc2305/10-002e ]; then
+    echo "10-002e" > /sys/bus/i2c/drivers/emc2305/unbind 2>/dev/null
+    sleep 0.3
+fi
 
 # Default values (BALANCED)
 MIN_PWM1=65
@@ -967,15 +987,14 @@ PWM2_T60=170
 PWM2_TMAX=255
 
 # Hysteresis settings (degrees Celsius)
-# Fan speed only decreases when temp drops below threshold minus hysteresis
 HYST_TEMP=3
 
-# Load config if exists (use . instead of source for POSIX compatibility)
+# Load config if exists
 if [ -f "$CONFIG_FILE" ]; then
     . "$CONFIG_FILE"
 fi
 
-# Load previous state (last PWM values and temps)
+# Load previous state
 LAST_PWM1=0
 LAST_PWM2=0
 LAST_TEMP1=0
@@ -984,18 +1003,31 @@ if [ -f "$STATE_FILE" ]; then
     . "$STATE_FILE"
 fi
 
-# Find EMC2305 hwmon path
-HWMON=""
+# Detect available fan backends
+HAS_EMC=0
+HAS_PWMFAN=""
+
+# Check EMC2305 on I2C
+if [ -x "$I2CSET" ] && [ -e "/dev/i2c-${EMC_BUS}" ]; then
+    # Quick probe: try reading product ID register
+    if /usr/sbin/i2cget -y $EMC_BUS $EMC_ADDR 0xFD > /dev/null 2>&1; then
+        HAS_EMC=1
+    fi
+fi
+
+# Check pwmfan via sysfs (RPi cooling fan)
 for hw in /sys/class/hwmon/hwmon*; do
     name=$(cat "$hw/name" 2>/dev/null)
-    if [ "$name" = "emc2305" ]; then
-        HWMON=$hw
+    if [ "$name" = "pwmfan" ]; then
+        if [ -f "$hw/pwm1" ]; then
+            HAS_PWMFAN="$hw/pwm1"
+        fi
         break
     fi
 done
 
-if [ -z "$HWMON" ]; then
-    echo "EMC2305 not found"
+if [ "$HAS_EMC" -eq 0 ] && [ -z "$HAS_PWMFAN" ]; then
+    echo "No fan controllers found (no EMC2305 on i2c, no pwmfan in sysfs)"
     exit 0
 fi
 
@@ -1007,7 +1039,6 @@ CPU_TEMP=$((CPU_TEMP / 1000))
 DISK_TEMP=0
 for disk in /dev/sd[a-z] /dev/nvme[0-9]n1; do
     if [ -b "$disk" ]; then
-        # Parse SMART attribute 194 (Temperature_Celsius) - value is in column 10
         t=$(smartctl -A "$disk" 2>/dev/null | grep -E "^194|Temperature_Celsius" | awk '{print $10}')
         if [ -n "$t" ] && [ "$t" -gt 0 ] && [ "$t" -lt 100 ] 2>/dev/null; then
             if [ "$t" -gt "$DISK_TEMP" ]; then
@@ -1023,7 +1054,7 @@ if [ "$CPU_TEMP" -gt "$TEMP1" ]; then
     TEMP1=$CPU_TEMP
 fi
 
-# Function to calculate PWM1 based on temperature
+# PWM1 curve (disk/case fans — EMC2305)
 calc_pwm1() {
     local temp=$1
     if [ "$temp" -ge 45 ]; then
@@ -1039,7 +1070,7 @@ calc_pwm1() {
     fi
 }
 
-# Function to calculate PWM2 based on CPU temperature
+# PWM2 curve (CPU fan — pwmfan sysfs)
 calc_pwm2() {
     local temp=$1
     if [ "$temp" -ge 70 ]; then
@@ -1056,47 +1087,65 @@ calc_pwm2() {
 }
 
 # Calculate target PWM values
-TARGET_PWM1=$(calc_pwm1 $TEMP1)
-TARGET_PWM2=$(calc_pwm2 $CPU_TEMP)
+# PWM1 (EMC2305) → case airflow, reacts to CPU temp
+# PWM2 (pwmfan) → disk cooling fans, reacts to disk temp
+TARGET_PWM1=$(calc_pwm1 $CPU_TEMP)
+TARGET_PWM2=$(calc_pwm2 $TEMP1)
 
-# Apply hysteresis: only allow decrease if temperature dropped significantly
-# For PWM1 (disk/general fan)
+# Apply hysteresis for PWM1
 if [ "$TARGET_PWM1" -lt "$LAST_PWM1" ]; then
-    # Temperature is suggesting lower speed - check hysteresis
     TEMP1_WITH_HYST=$((TEMP1 + HYST_TEMP))
     HYST_PWM1=$(calc_pwm1 $TEMP1_WITH_HYST)
     if [ "$HYST_PWM1" -ge "$LAST_PWM1" ]; then
-        # Temperature hasn't dropped enough, keep current speed
         TARGET_PWM1=$LAST_PWM1
     fi
 fi
 
-# For PWM2 (CPU fan)
+# Apply hysteresis for PWM2
 if [ "$TARGET_PWM2" -lt "$LAST_PWM2" ]; then
-    # Temperature is suggesting lower speed - check hysteresis
     CPU_TEMP_WITH_HYST=$((CPU_TEMP + HYST_TEMP))
     HYST_PWM2=$(calc_pwm2 $CPU_TEMP_WITH_HYST)
     if [ "$HYST_PWM2" -ge "$LAST_PWM2" ]; then
-        # Temperature hasn't dropped enough, keep current speed
         TARGET_PWM2=$LAST_PWM2
     fi
 fi
 
-# Ensure minimum values
+# Enforce minimums
 PWM1=$TARGET_PWM1
 PWM2=$TARGET_PWM2
-if [ "$PWM1" -lt "$MIN_PWM1" ]; then
-    PWM1=$MIN_PWM1
-fi
-if [ "$PWM2" -lt "$MIN_PWM2" ]; then
-    PWM2=$MIN_PWM2
+[ "$PWM1" -lt "$MIN_PWM1" ] && PWM1=$MIN_PWM1
+[ "$PWM2" -lt "$MIN_PWM2" ] && PWM2=$MIN_PWM2
+
+# Apply PWM1 to EMC2305 via I2C (both fan channels)
+EMC_STATUS=""
+if [ "$HAS_EMC" -eq 1 ]; then
+    HEX_PWM1=$(printf "0x%02x" $PWM1)
+    $I2CSET -y $EMC_BUS $EMC_ADDR $EMC_FAN1_REG $HEX_PWM1 2>/dev/null && \
+    $I2CSET -y $EMC_BUS $EMC_ADDR $EMC_FAN2_REG $HEX_PWM1 2>/dev/null && \
+    EMC_STATUS="ok" || EMC_STATUS="err"
 fi
 
-# Apply PWM values to hardware
-echo $PWM1 > "$HWMON/pwm1" 2>/dev/null
-echo $PWM2 > "$HWMON/pwm2" 2>/dev/null
+# Apply PWM2 to disk cooling fans via thermal cooling device
+# The kernel thermal governor controls pwmfan — write to cooling_device, not pwm1 directly
+PWMFAN_STATUS=""
+if [ -n "$HAS_PWMFAN" ]; then
+    if [ -e /sys/class/thermal/cooling_device0/cur_state ]; then
+        # Map PWM to cooling state (0-4) with aggressive disk cooling
+        if [ $PWM2 -ge 230 ]; then COOL_STATE=4
+        elif [ $PWM2 -ge 170 ]; then COOL_STATE=3
+        elif [ $PWM2 -ge 100 ]; then COOL_STATE=2
+        elif [ $PWM2 -ge 50 ]; then COOL_STATE=1
+        else COOL_STATE=0; fi
+        echo $COOL_STATE > /sys/class/thermal/cooling_device0/cur_state 2>/dev/null && \
+        PWMFAN_STATUS="ok" || PWMFAN_STATUS="err"
+    else
+        # Fallback: direct pwm1 write (for systems without cooling_device)
+        echo $PWM2 > "$HAS_PWMFAN" 2>/dev/null && \
+        PWMFAN_STATUS="ok" || PWMFAN_STATUS="err"
+    fi
+fi
 
-# Save state for next iteration
+# Save state
 cat > "$STATE_FILE" <<EOF
 LAST_PWM1=$PWM1
 LAST_PWM2=$PWM2
@@ -1104,13 +1153,7 @@ LAST_TEMP1=$TEMP1
 LAST_CPU_TEMP=$CPU_TEMP
 EOF
 
-# Log output (with hysteresis indicator if applied)
-HYST_IND1=""
-HYST_IND2=""
-[ "$PWM1" -eq "$LAST_PWM1" ] && [ "$TARGET_PWM1" -ne "$LAST_PWM1" ] 2>/dev/null && HYST_IND1=" [H]"
-[ "$PWM2" -eq "$LAST_PWM2" ] && [ "$TARGET_PWM2" -ne "$LAST_PWM2" ] 2>/dev/null && HYST_IND2=" [H]"
-
-echo "CPU: ${CPU_TEMP}C, Disk: ${DISK_TEMP}C -> PWM1: ${PWM1}${HYST_IND1}, PWM2: ${PWM2}${HYST_IND2}"
+echo "CPU:${CPU_TEMP}C Disk:${DISK_TEMP}C | EMC2305:PWM1=${PWM1}(${EMC_STATUS:-n/a}) | pwmfan:PWM2=${PWM2}(${PWMFAN_STATUS:-n/a})"
 FANEOF
 
 if [ -f "$FANCTL_SCRIPT" ]; then
@@ -1189,6 +1232,162 @@ else
     echo -e "${YELLOW}Skipping fan control (not a Raspberry Pi)${NC}"
 fi  # End IS_RASPBERRY_PI check
 
+# ===== Cache Mover (SSD cache → HDD data tiering) =====
+echo -e "${BLUE}Setting up cache mover service...${NC}"
+
+CACHE_MOVER_SCRIPT="/usr/local/bin/homepinas-cache-mover.sh"
+CACHE_MOVER_CONF="/usr/local/bin/homepinas-cache-mover.conf"
+
+# Config file with defaults
+cat > "$CACHE_MOVER_CONF" <<'CACHECONF'
+# HomePiNAS Cache Mover Configuration
+# Files older than CACHE_AGE_MINUTES will be moved from SSD cache to HDD pool
+CACHE_AGE_MINUTES=120
+# Percentage of cache usage that triggers immediate move (0=disabled)
+CACHE_USAGE_THRESHOLD=80
+# Log file
+LOG_FILE="/var/log/homepinas-cache-mover.log"
+CACHECONF
+
+cat > "$CACHE_MOVER_SCRIPT" <<'CACHESCRIPT'
+#!/bin/bash
+# HomePiNAS Cache Mover — Moves old files from SSD cache to HDD data disks
+# Runs via systemd timer every 30 minutes
+
+CONF="/usr/local/bin/homepinas-cache-mover.conf"
+[ -f "$CONF" ] && source "$CONF"
+
+CACHE_AGE_MINUTES=${CACHE_AGE_MINUTES:-120}
+CACHE_USAGE_THRESHOLD=${CACHE_USAGE_THRESHOLD:-80}
+LOG_FILE=${LOG_FILE:-/var/log/homepinas-cache-mover.log}
+STORAGE_BASE="/mnt/disks"
+
+log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$LOG_FILE"; }
+
+# Find all cache mount points
+CACHE_DIRS=()
+for d in "$STORAGE_BASE"/cache "$STORAGE_BASE"/cache1 "$STORAGE_BASE"/cache2; do
+    mountpoint -q "$d" 2>/dev/null && CACHE_DIRS+=("$d")
+done
+
+if [ ${#CACHE_DIRS[@]} -eq 0 ]; then
+    exit 0  # No cache disks mounted, nothing to do
+fi
+
+# Find all data disk mount points (diskN)
+DATA_DIRS=()
+for d in "$STORAGE_BASE"/disk*; do
+    [ -d "$d" ] && mountpoint -q "$d" 2>/dev/null && DATA_DIRS+=("$d")
+done
+
+if [ ${#DATA_DIRS[@]} -eq 0 ]; then
+    log "ERROR: No data disks found"
+    exit 1
+fi
+
+# Get data disk with most free space
+get_target_disk() {
+    local max_free=0
+    local target=""
+    for dir in "${DATA_DIRS[@]}"; do
+        local free=$(df --output=avail "$dir" 2>/dev/null | tail -1 | tr -d ' ')
+        if [ "${free:-0}" -gt "$max_free" ] 2>/dev/null; then
+            max_free=$free
+            target=$dir
+        fi
+    done
+    echo "$target"
+}
+
+MOVED=0
+ERRORS=0
+
+for cache_dir in "${CACHE_DIRS[@]}"; do
+    # Check if cache usage exceeds threshold — if so, move ALL files regardless of age
+    if [ "$CACHE_USAGE_THRESHOLD" -gt 0 ]; then
+        usage=$(df --output=pcent "$cache_dir" 2>/dev/null | tail -1 | tr -dc '0-9')
+        if [ "${usage:-0}" -ge "$CACHE_USAGE_THRESHOLD" ]; then
+            AGE_FLAG="-mmin +5"  # Move everything older than 5 minutes
+            log "WARN: Cache $cache_dir at ${usage}% — emergency move (age >5min)"
+        else
+            AGE_FLAG="-mmin +${CACHE_AGE_MINUTES}"
+        fi
+    else
+        AGE_FLAG="-mmin +${CACHE_AGE_MINUTES}"
+    fi
+
+    # Find files to move
+    find "$cache_dir" -type f $AGE_FLAG 2>/dev/null | while IFS= read -r file; do
+        rel="${file#$cache_dir/}"
+        target=$(get_target_disk)
+        
+        if [ -z "$target" ]; then
+            log "ERROR: No data disk with free space"
+            ERRORS=$((ERRORS + 1))
+            break
+        fi
+
+        target_path="$target/$rel"
+        target_dir="$(dirname "$target_path")"
+        
+        # Create directory structure on target
+        mkdir -p "$target_dir" 2>/dev/null
+        
+        # Move file: rsync preserves attributes, --remove-source-files deletes after success
+        if rsync -axHAXWES --preallocate --remove-source-files "$file" "$target_path" 2>/dev/null; then
+            MOVED=$((MOVED + 1))
+        else
+            # Fallback: cp + rm
+            if cp -a "$file" "$target_path" 2>/dev/null && rm -f "$file" 2>/dev/null; then
+                MOVED=$((MOVED + 1))
+            else
+                log "ERROR: Failed to move $rel"
+                ERRORS=$((ERRORS + 1))
+            fi
+        fi
+    done
+
+    # Clean empty directories left behind
+    find "$cache_dir" -mindepth 1 -type d -empty -delete 2>/dev/null
+done
+
+if [ $MOVED -gt 0 ] || [ $ERRORS -gt 0 ]; then
+    log "Moved: $MOVED files, Errors: $ERRORS"
+fi
+CACHESCRIPT
+
+chmod +x "$CACHE_MOVER_SCRIPT"
+
+# Systemd service
+cat > /etc/systemd/system/homepinas-cache-mover.service <<EOF
+[Unit]
+Description=HomePiNAS Cache Mover (SSD→HDD tiering)
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=$CACHE_MOVER_SCRIPT
+Nice=19
+IOSchedulingClass=idle
+EOF
+
+# Systemd timer (every 30 minutes)
+cat > /etc/systemd/system/homepinas-cache-mover.timer <<EOF
+[Unit]
+Description=HomePiNAS Cache Mover Timer
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now homepinas-cache-mover.timer 2>/dev/null || true
+echo -e "${GREEN}Cache mover service configured (runs every 30 minutes)${NC}"
+
 # Configure user permissions
 echo -e "${BLUE}Configuring user permissions...${NC}"
 usermod -aG docker $REAL_USER 2>/dev/null || true
@@ -1208,6 +1407,8 @@ $REAL_USER ALL=(ALL) NOPASSWD: /usr/bin/tee /sys/class/hwmon/hwmon[0-9][0-9]/pwm
 $REAL_USER ALL=(ALL) NOPASSWD: /usr/bin/tee /usr/local/bin/homepinas-fanctl.conf
 $REAL_USER ALL=(ALL) NOPASSWD: /bin/cp /tmp/homepinas-fanctl-temp.conf /usr/local/bin/homepinas-fanctl.conf
 $REAL_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart homepinas-fanctl
+$REAL_USER ALL=(ALL) NOPASSWD: /usr/sbin/i2cset
+$REAL_USER ALL=(ALL) NOPASSWD: /usr/sbin/i2cget
 
 # Storage configuration (restricted to specific config files)
 $REAL_USER ALL=(ALL) NOPASSWD: /usr/bin/tee /etc/snapraid.conf
@@ -1248,6 +1449,10 @@ $REAL_USER ALL=(ALL) NOPASSWD: /bin/systemctl daemon-reload
 $REAL_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart smbd
 $REAL_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart nmbd
 $REAL_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart homepinas
+$REAL_USER ALL=(ALL) NOPASSWD: /bin/systemctl start homepinas-cache-mover.service
+$REAL_USER ALL=(ALL) NOPASSWD: /bin/systemctl enable homepinas-cache-mover.timer
+$REAL_USER ALL=(ALL) NOPASSWD: /bin/systemctl disable homepinas-cache-mover.timer
+$REAL_USER ALL=(ALL) NOPASSWD: /usr/bin/tee /usr/local/bin/homepinas-cache-mover.conf
 
 # Disk management - allow parted, partprobe, blkid, mkdir, mount, umount for storage setup
 $REAL_USER ALL=(ALL) NOPASSWD: /usr/sbin/parted *
