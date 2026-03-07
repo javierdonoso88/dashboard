@@ -13218,3 +13218,39 @@ body.fm-dragging .fm-tree-item {
     font-size: 0.8rem;
     color: var(--text-secondary);
 }
+
+/* File location badges */
+.fm-location-badge {
+    display: inline-block;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    margin-left: 6px;
+    font-weight: 500;
+    vertical-align: middle;
+}
+.fm-location-badge.cache {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+}
+.fm-location-badge.data {
+    background: rgba(99, 102, 241, 0.15);
+    color: #6366f1;
+}
+.fm-location-badge.pool {
+    background: rgba(139, 92, 246, 0.15);
+    color: #8b5cf6;
+}
+
+/* Disk I/O stats */
+.disk-io-stats {
+    display: flex;
+    gap: 8px;
+    font-size: 11px;
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+}
+.io-read { color: #10b981; }
+.io-write { color: #f59e0b; }
+.io-util { color: #6366f1; font-weight: 600; }

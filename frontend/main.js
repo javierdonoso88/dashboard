@@ -2655,8 +2655,24 @@ async function renderDashboard() {
         disksHtml = `<div class="no-disks">${t('storage.unableToLoad', 'No se pudo cargar la información de discos')}</div>`;
     }
 
+
+    // Fetch I/O stats for disks
+    try {
+        const ioRes = await authFetch(`${API_BASE}/storage/disks/iostats`);
+        if (renderGeneration !== currentGen) return;
+        if (ioRes.ok) {
+            const ioData = await ioRes.json();
+            if (ioData.disks && ioData.disks.length > 0) {
+                // We'll store this and use it after innerHTML is set
+                window._pendingIoStats = ioData.disks;
+            }
+        }
+    } catch (e) {
+        console.warn('I/O stats fetch error:', e);
+    }
+
     // Abort if user navigated away from dashboard during async fetches
-    if (state.currentView !== 'dashboard') return;
+    if (renderGeneration !== currentGen) return;
 
     dashboardContent.innerHTML = `
         <div class="glass-card overview-card dash-overview-full">
@@ -2738,12 +2754,154 @@ async function renderDashboard() {
                 ${disksHtml || `<div class="no-disks">${t('storage.noDisksDetected', 'No se detectaron discos')}</div>`}
             </div>
         </div>
+
+        <div id="cache-status-widget" class="glass-card storage-overview dash-storage-full" style="display: none;">
+            <div class="storage-array-header">
+                <h3>⚡ ${t('dashboard.cache', 'Estado de la Caché')}</h3>
+                <button id="cache-mover-btn" class="btn-primary" style="padding: 6px 14px; font-size: 13px; border-radius: 6px;">
+                    🚀 ${t('dashboard.moveNow', 'Mover Ahora')}
+                </button>
+            </div>
+            <div id="cache-status-content" style="padding: 12px;">
+                <div style="text-align: center; color: var(--text-dim);">${t('dashboard.loading', 'Cargando...')}</div>
+            </div>
+        </div>
+
+        <div id="docker-containers-widget" class="glass-card storage-overview dash-storage-full" style="display: none;">
+            <div class="storage-array-header">
+                <h3>🐳 Docker</h3>
+            </div>
+            <div id="docker-containers-content" style="padding: 12px;">
+                <div style="text-align: center; color: var(--text-dim);">${t('dashboard.loading', 'Cargando...')}</div>
+            </div>
+        </div>
     `;
 
     // Add fan mode button event listeners
     dashboardContent.querySelectorAll('.fan-mode-btn[data-mode]').forEach(btn => {
         btn.addEventListener('click', () => setFanMode(btn.dataset.mode));
     });
+
+
+    // Inject I/O stats into disk cards
+    if (window._pendingIoStats) {
+        window._pendingIoStats.forEach(io => {
+            const diskEls = dashboardContent.querySelectorAll('.disk-item-compact');
+            diskEls.forEach(el => {
+                const detailsSpan = el.querySelector('.disk-details');
+                if (detailsSpan && detailsSpan.textContent.includes(io.diskId)) {
+                    const ioDiv = document.createElement('div');
+                    ioDiv.className = 'disk-io-stats';
+                    ioDiv.innerHTML = `<span class="io-read">↓ ${io.readMBs} MB/s</span> <span class="io-write">↑ ${io.writeMBs} MB/s</span>` +
+                        (io.utilization > 0 ? ` <span class="io-util">${io.utilization.toFixed(0)}%</span>` : '');
+                    el.appendChild(ioDiv);
+                }
+            });
+        });
+        delete window._pendingIoStats;
+    }
+
+    // Fetch and update cache status widget
+    try {
+        const cacheRes = await authFetch(`${API_BASE}/storage/cache/status`);
+        if (renderGeneration !== currentGen) return;
+        if (cacheRes.ok) {
+            const cacheData = await cacheRes.json();
+            if (renderGeneration !== currentGen) return;
+            const cacheWidget = document.getElementById('cache-status-widget');
+            const cacheContent = document.getElementById('cache-status-content');
+
+            if (cacheWidget && cacheData && cacheData.hasCache) {
+                cacheWidget.style.display = 'block';
+                let html = '';
+                if (cacheData.cacheDisks) {
+                    html = cacheData.cacheDisks.map(disk => {
+                        const pct = disk.usagePercent || 0;
+                        const fillClass = pct > 90 ? 'high' : pct > 70 ? 'medium' : 'low';
+                        return `
+                            <div class="storage-mount-row cache" style="margin-bottom: 10px;">
+                                <div class="mount-info">
+                                    <span class="mount-path">${escapeHtml(disk.mountPoint || '')}</span>
+                                    <span class="mount-device">${escapeHtml(disk.disk || '')}</span>
+                                </div>
+                                <div class="mount-bar-container">
+                                    <div class="mount-bar">
+                                        <div class="mount-bar-fill ${fillClass}" style="width: ${pct}%"></div>
+                                    </div>
+                                    <div class="mount-bar-text">
+                                        <span>${pct}% usado</span>
+                                        <span>${escapeHtml(disk.availableFormatted || 'N/A')} disponible</span>
+                                    </div>
+                                </div>
+                            </div>`;
+                    }).join('');
+                }
+                if (cacheData.fileCounts) {
+                    html += `<div style="margin-top: 8px; font-size: 13px; color: var(--text-dim);">
+                        ⚡ Caché: <strong>${cacheData.fileCounts.cache || 0}</strong> archivos |
+                        🌐 Datos: <strong>${cacheData.fileCounts.data || 0}</strong> archivos
+                    </div>`;
+                }
+                if (cacheContent) cacheContent.innerHTML = html;
+
+                // Cache mover button
+                const moverBtn = document.getElementById('cache-mover-btn');
+                if (moverBtn) {
+                    moverBtn.onclick = async () => {
+                        moverBtn.disabled = true;
+                        moverBtn.textContent = '⏳ Moviendo...';
+                        try {
+                            const res = await authFetch(`${API_BASE}/cache/move-now`, { method: 'POST' });
+                            if (res.ok) {
+                                const r = await res.json();
+                                showNotification(r.message || 'Cache mover iniciado', 'success');
+                                setTimeout(() => renderDashboard(), 2000);
+                            } else {
+                                showNotification('Error al iniciar mover', 'error');
+                            }
+                        } catch (e) {
+                            showNotification('Error al iniciar mover', 'error');
+                        } finally {
+                            moverBtn.disabled = false;
+                            moverBtn.textContent = '🚀 Mover Ahora';
+                        }
+                    };
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('Cache status fetch error:', e);
+    }
+
+    // Fetch and update Docker containers widget
+    try {
+        const dockerRes = await authFetch(`${API_BASE}/docker/containers`);
+        if (renderGeneration !== currentGen) return;
+        if (dockerRes.ok) {
+            const containers = await dockerRes.json();
+            if (renderGeneration !== currentGen) return;
+            const dockerWidget = document.getElementById('docker-containers-widget');
+            const dockerContent = document.getElementById('docker-containers-content');
+
+            if (dockerWidget && Array.isArray(containers) && containers.length > 0) {
+                dockerWidget.style.display = 'block';
+                const html = containers.slice(0, 8).map(c => {
+                    const stateColor = c.State === 'running' ? 'var(--success)' : 'var(--danger)';
+                    const name = (c.Names && c.Names[0] || c.name || 'unknown').replace(/^\//, '');
+                    const image = c.Image || '';
+                    const shortImage = image.split(':')[0].split('/').pop();
+                    return `<div class="net-row">
+                        <span><span style="color:${stateColor};">●</span> ${escapeHtml(name)}</span>
+                        <span style="font-size:12px;color:var(--text-dim);">${escapeHtml(shortImage)}</span>
+                    </div>`;
+                }).join('');
+                if (dockerContent) dockerContent.innerHTML = html;
+            }
+        }
+    } catch (e) {
+        console.warn('Docker containers fetch error:', e);
+    }
+
 }
 
 // Fan speed control - update percentage display while dragging
@@ -6315,6 +6473,22 @@ function renderFilteredFiles(files, highlightQuery = '') {
     }
 }
 
+
+// File location badge helper
+function getLocationBadge(path) {
+    if (!path) return '';
+    if (path.startsWith('/mnt/disks/cache') || path.includes('/cache')) {
+        return '<span class="fm-location-badge cache" title="En caché SSD">⚡ cache</span>';
+    }
+    if (path.startsWith('/mnt/disks/disk')) {
+        return '<span class="fm-location-badge data" title="En disco de datos">💾 data</span>';
+    }
+    if (path.startsWith('/mnt/storage')) {
+        return '<span class="fm-location-badge pool" title="Pool MergerFS">📦 pool</span>';
+    }
+    return '';
+}
+
 // ── Render list view ──
 function renderFilesList(container, files, filePath) {
     files.forEach(file => {
@@ -6337,6 +6511,13 @@ function renderFilesList(container, files, filePath) {
         const nameSpan = document.createElement('span');
         nameSpan.className = 'fm-file-name';
         nameSpan.textContent = file.name;
+
+        const badge = getLocationBadge(fullPath);
+        if (badge) {
+            const badgeSpan = document.createElement('span');
+            badgeSpan.innerHTML = badge;
+            nameSpan.appendChild(badgeSpan.firstChild);
+        }
 
         const sizeSpan = document.createElement('span');
         sizeSpan.className = 'fm-file-meta';
