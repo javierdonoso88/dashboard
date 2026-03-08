@@ -1,21 +1,9 @@
 /**
  * HomePiNAS - Premium NAS Dashboard for Raspberry Pi CM5
- * v2.8.8 - Extended Features
+ * Homelabs.club Edition
  *
- * Homelabs.club Edition with:
- * - Bcrypt password hashing
- * - SQLite-backed persistent sessions
- * - Rate limiting protection
- * - Input sanitization
- * - Restricted sudoers
- * - HTTPS support
- * - Fan hysteresis
- * - Docker Compose management
- * - Container update detection
- * - Web Terminal (PTY + xterm.js)
- * - Configurable Shortcuts
- * - Internationalization (i18n)
- * - Enhanced Storage View
+ * Version is read from package.json at runtime.
+ * See CHANGELOG.md for feature history.
  */
 
 const express = require('express');
