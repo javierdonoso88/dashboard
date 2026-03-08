@@ -159,9 +159,13 @@ router.post('/configure', requireAuth, (req, res) => {
                 const gateway = config.gateway || '';
                 const dns = Array.isArray(config.dns) ? config.dns.join(' ') : (config.dns || '');
 
-                // Convert subnet mask to CIDR prefix
-                const cidr = subnet.split('.').reduce((acc, octet) => 
-                    acc + (parseInt(octet) >>> 0).toString(2).split('1').length - 1, 0);
+                // Convert subnet mask to CIDR prefix (count set bits via popcount)
+                const cidr = subnet.split('.').reduce((acc, octet) => {
+                    let n = parseInt(octet) & 0xFF;
+                    let bits = 0;
+                    while (n & 0x80) { bits++; n = (n << 1) & 0xFF; }
+                    return acc + bits;
+                }, 0);
 
                 // Set all static IP params in one nmcli call (method manual requires address)
                 const nmcliArgs = ['nmcli', 'con', 'mod', conName,
@@ -201,8 +205,12 @@ router.post('/configure', requireAuth, (req, res) => {
                     
                     if (!isDhcp) {
                         const subnet = config.subnet || '255.255.255.0';
-                        const cidr = subnet.split('.').reduce((acc, octet) => 
-                            acc + (parseInt(octet) >>> 0).toString(2).split('1').length - 1, 0);
+                        const cidr = subnet.split('.').reduce((acc, octet) => {
+                            let n = parseInt(octet) & 0xFF;
+                            let bits = 0;
+                            while (n & 0x80) { bits++; n = (n << 1) & 0xFF; }
+                            return acc + bits;
+                        }, 0);
                         
                         content += `\ninterface ${id}\nstatic ip_address=${config.ip}/${cidr}\n`;
                         if (config.gateway) content += `static routers=${config.gateway}\n`;
