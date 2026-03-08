@@ -21,18 +21,24 @@ const { logSecurityEvent } = require('../utils/security');
 // Terminal sessions storage
 const terminalSessions = new Map();
 
-// Allowed commands for shortcuts (whitelist)
+// Allowed commands for terminal shortcuts (whitelist)
+// NOTE: 'bash' and 'sh' provide full shell access. This whitelist is NOT
+// a security boundary — it only restricts the initial command for the PTY.
+// Any authenticated user with terminal access has full shell capability.
+// The real security boundary is authentication + admin role.
 const ALLOWED_COMMANDS = [
     'bash', 'sh', 'htop', 'top', 'mc', 'nano', 'vim', 'vi',
     'less', 'more', 'cat', 'ls', 'cd', 'pwd', 'df', 'du',
     'free', 'ps', 'journalctl', 'systemctl', 'docker', 'tmux'
 ];
 
-// Validate command is safe to execute
+// Validate command is in the allowed shortcut list
+// This prevents arbitrary binary execution from the shortcuts UI,
+// but does NOT sandbox the terminal session itself.
 function validateCommand(cmd) {
     if (!cmd || typeof cmd !== 'string') return false;
     
-    // Don't allow paths
+    // Don't allow paths (force use of command names only)
     if (cmd.includes('/')) return false;
     
     const parts = cmd.trim().split(' ');
