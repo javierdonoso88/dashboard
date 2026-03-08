@@ -1296,6 +1296,12 @@ function initStorageSetup() {
                         const container = document.getElementById('wizard-net-iface-container');
                         if (container && ifaces.length > 0) {
                             const iface = ifaces[0]; // Primary interface
+                            if (!iface || !iface.id) {
+                                container.innerHTML = '<p style="color:var(--text-secondary);">⚠️ No se detectó interfaz de red válida</p>';
+                                netForm.dataset.loaded = '1';
+                                return;
+                            }
+                            const interfaceId = iface.id; // Store in local const for closure safety
                             const isDhcp = iface.dhcp !== false;
                             container.innerHTML = `
                                 <div class="input-group">
@@ -1310,8 +1316,8 @@ function initStorageSetup() {
                                     <div class="input-group"><input type="text" id="wizard-net-gw" value="${escapeHtml(iface.gateway || '')}" placeholder=" "><label>Puerta de Enlace</label></div>
                                     <div class="input-group"><input type="text" id="wizard-net-dns" value="${escapeHtml(iface.dns || '')}" placeholder=" "><label>DNS</label></div>
                                 </div>
-                                <button class="wizard-btn wizard-btn-next" id="wizard-net-save" style="margin-top:10px;">💾 Aplicar</button>
-                                <span id="wizard-net-status" style="margin-left:10px;"></span>
+                                <button class="wizard-btn wizard-btn-next" id="wizard-net-save" style="margin-top:14px;padding:12px 24px;font-size:1rem;font-weight:600;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;width:100%;transition:opacity 0.2s;">🌐 Aplicar Configuración de Red</button>
+                                <span id="wizard-net-status" style="display:block;margin-top:8px;text-align:center;"></span>
                             `;
                             document.getElementById('wizard-net-dhcp').addEventListener('change', (e) => {
                                 document.getElementById('wizard-net-static').style.display = e.target.checked ? 'none' : 'block';
@@ -1330,7 +1336,7 @@ function initStorageSetup() {
                                     statusEl.textContent = '⏳ Aplicando...';
                                     const r = await authFetch(`${API_BASE}/network/configure`, {
                                         method: 'POST',
-                                        body: JSON.stringify({ id: iface.id, config })
+                                        body: JSON.stringify({ id: interfaceId, config })
                                     });
                                     const d = await r.json();
                                     if (r.ok) {
