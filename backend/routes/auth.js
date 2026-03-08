@@ -355,7 +355,8 @@ router.post('/logout', (req, res) => {
 });
 
 // Emergency reset (no auth required - for locked out users)
-// Protected by strict rate limiting (3 attempts per hour)
+// SECURITY: Rate limited (3/hour) + requires confirmation phrase to prevent
+// accidental or malicious resets from the local network.
 const resetLimiter = require('express-rate-limit')({
     windowMs: 60 * 60 * 1000, // 1 hour
     max: 3,
@@ -368,6 +369,14 @@ router.post('/setup/reset', resetLimiter, (req, res) => {
     const fs = require('fs');
     const { DATA_FILE } = require('../utils/data');
     const { clearAllSessions } = require('../utils/session');
+    
+    // Require confirmation phrase to prevent accidental/malicious resets
+    const { confirm } = req.body || {};
+    if (confirm !== 'RESET') {
+        return res.status(400).json({
+            error: 'Confirmation required. Send { "confirm": "RESET" } to proceed.'
+        });
+    }
     
     try {
         logSecurityEvent('EMERGENCY_RESET', { source: 'setup-page' }, req.ip);
