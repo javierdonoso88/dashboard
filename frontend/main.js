@@ -3884,7 +3884,15 @@ async function renderDockerManager() {
 
             if (isRunning) {
                 // Open Web button (if has public ports)
-                const publicPorts = (container.ports || []).filter(p => p.public);
+                // Deduplicate ports (same public port can appear for TCP and UDP)
+                const allPublicPorts = (container.ports || []).filter(p => p.public);
+                const seenPorts = new Set();
+                const publicPorts = allPublicPorts.filter(p => {
+                    const key = `${p.public}:${p.private}`;
+                    if (seenPorts.has(key)) return false;
+                    seenPorts.add(key);
+                    return true;
+                });
                 if (publicPorts.length > 0) {
                     // Prefer common HTTP ports for the default action
                     const httpPorts = [80, 443, 8080, 8443, 8888, 9090, 3000, 5000, 9000, 8096, 7878, 8989, 8686, 9696];
@@ -3898,19 +3906,17 @@ async function renderDockerManager() {
                             const proto = preferredPort.private === 443 || preferredPort.private === 8443 ? 'https' : 'http';
                             window.open(`${proto}://${window.location.hostname}:${preferredPort.public}`, '_blank');
                         } else {
-                            // Multiple ports — show selector dropdown
-                            const existing = card.querySelector('.docker-port-selector');
+                            // Multiple ports — show selector as fixed popup near the button
+                            const existing = document.querySelector('.docker-port-selector');
                             if (existing) { existing.remove(); return; }
                             const selector = document.createElement('div');
                             selector.className = 'docker-port-selector';
-                            selector.style.cssText = 'position:absolute;z-index:100;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:6px;box-shadow:0 4px 12px rgba(0,0,0,0.15);display:flex;flex-direction:column;gap:4px;';
-                            const rect = webBtn.getBoundingClientRect();
-                            selector.style.top = (webBtn.offsetTop + webBtn.offsetHeight + 4) + 'px';
-                            selector.style.left = webBtn.offsetLeft + 'px';
+                            const btnRect = webBtn.getBoundingClientRect();
+                            selector.style.cssText = `position:fixed;z-index:10000;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:6px;box-shadow:0 4px 16px rgba(0,0,0,0.25);display:flex;flex-direction:column;gap:4px;top:${btnRect.bottom + 4}px;left:${btnRect.left}px;`;
                             for (const p of publicPorts) {
                                 const opt = document.createElement('button');
                                 opt.className = 'docker-action-btn web';
-                                opt.style.cssText = 'font-size:0.8rem;padding:4px 10px;white-space:nowrap;';
+                                opt.style.cssText = 'font-size:0.85rem;padding:6px 12px;white-space:nowrap;text-align:left;';
                                 const isPreferred = p === preferredPort;
                                 opt.textContent = `:${p.public} → ${p.private}${isPreferred ? ' ★' : ''}`;
                                 opt.addEventListener('click', () => {
@@ -3928,8 +3934,7 @@ async function renderDockerManager() {
                                 }
                             };
                             setTimeout(() => document.addEventListener('click', closeHandler), 0);
-                            card.style.position = 'relative';
-                            card.appendChild(selector);
+                            document.body.appendChild(selector);
                         }
                     });
                     actionsRow.appendChild(webBtn);
