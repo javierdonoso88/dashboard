@@ -5,6 +5,39 @@ All notable changes to HomePiNAS are documented in this file.
 
 ---
 
+## [2.11.0] - 2026-03-08
+
+### Security
+- **Factory reset requires auth** — `POST /api/power/factory-reset` now requires admin authentication (was previously public)
+- **Emergency reset confirmation** — `POST /api/auth/setup/reset` now requires `{ "confirm": "RESET" }` body
+- **XSS fixes** — Sanitize hostname, uptime, temperature values in innerHTML with `escapeHtml()`
+- **Per-user file ACLs** — Users can be restricted to specific directory paths
+
+### Added
+- **NFS share management** — Full NFS UI in Network view (list/add/delete shares, service status)
+- **Per-user file paths** — Admin can set home directory and allowed paths per user (Users → 📁 button)
+- **ext4/XFS selector** — Choose filesystem type when creating storage pools in wizard
+- **Docker port selector** — Smart port detection for Open Web button (prefers HTTP ports, dropdown for multiple)
+- **CI/CD** — GitHub Actions workflow for automated tests on push/PR
+- **In-process data mutex** — `withData()` function prevents concurrent write races on data.json
+
+### Fixed
+- **Version sync** — All version sources now read from package.json (single source of truth)
+- **Docker update preserves config** — Networks, Cmd, Entrypoint, User, Tty now preserved on container recreation
+- **Container notes by name** — Notes survive container updates (indexed by name, not ID)
+- **Network CIDR calculation** — Proper bit-counting replaces fragile string-split hack
+- **Docker log parsing** — Correctly strips multiplexed stream headers (no more garbage bytes)
+- **Gateway auto-fill** — Switching from DHCP to manual populates gateway with x.x.x.1
+- **fstab filesystem detection** — Uses actual partition type instead of hardcoding ext4
+- **JSON body limit** — Increased from 10kb to 256kb for docker-compose files
+
+### Changed
+- **CSP documented** — `scriptSrcAttr: 'unsafe-inline'` documented as tech debt (TODO: migrate onclick handlers)
+- **Terminal whitelist documented** — Clarified that command whitelist is not a security boundary
+
+
+---
+
 ## [2.10.8] - 2026-03-04
 
 ### Added

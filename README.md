@@ -1,8 +1,8 @@
-# HomePiNAS v2.10.19
+# HomePiNAS v2.11.0
 
 Premium NAS Dashboard for Raspberry Pi CM5 - Homelabs.club Edition
 
-![HomePiNAS Dashboard](https://img.shields.io/badge/version-2.10.19-brightgreen)
+![HomePiNAS Dashboard](https://img.shields.io/badge/version-2.11.0-brightgreen)
 ![PWA Ready](https://img.shields.io/badge/PWA-Ready-blueviolet)
 ![Mobile Friendly](https://img.shields.io/badge/Mobile-Friendly-blue)
 
@@ -67,22 +67,24 @@ Premium NAS Dashboard for Raspberry Pi CM5 - Homelabs.club Edition
 - HTTPS with self-signed certificates
 - 2FA (TOTP) support
 
-## 🆕 What's New in v2.10.5
+## 🆕 What's New in v2.11.0
 
-### UI/UX Improvements
-- **🔔 Notification Center** — Functional notification center with modal interface
-- **👤 User Menu** — Working user menu with profile access and settings
-- **🔑 Password Change** — Built-in password change functionality from user menu
-- **📁 File Manager** — Fixed folder tree not updating when creating new directories
-- **💻 Terminal** — Enhanced error handling for command shortcuts with better debugging info
+### Features
+- **📁 NFS Share Management** — Full NFS UI in Network view (create, delete, status)
+- **👤 Per-User File Paths** — Set home directories and restrict access per user
+- **📦 ext4/XFS Choice** — Select filesystem type when creating storage pools
+- **🐳 Smart Port Selector** — Docker "Open Web" button detects HTTP ports, shows dropdown for multi-port containers
+- **🔒 Enhanced Security** — Factory reset requires auth, emergency reset needs confirmation, XSS fixes
+- **🔄 CI/CD** — Automated tests on GitHub Actions
 
-### Technical Fixes
-- Fixed header notification icon functionality (issue #3)
-- Fixed header user menu not displaying dropdown (issue #4) 
-- Fixed File Manager folder tree refresh on new folder creation (issue #5)
-- Improved Terminal WebSocket error handling for command shortcuts (issue #9)
-- Enhanced terminal security with better command argument validation
-- Added connection timeouts and detailed error messages for failed terminal connections
+### Fixes
+- Version numbers synchronized across all files (package.json as single source)
+- Docker container update now preserves networks, entrypoint, user config
+- Container notes persist across updates (indexed by name)
+- Network CIDR calculation fixed
+- Docker logs properly parsed (no more garbage bytes)
+- Gateway auto-fills when switching DHCP → manual
+- JSON body limit increased for large compose files
 
 ## ⚡ Quick Install
 
