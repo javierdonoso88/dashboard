@@ -2,11 +2,11 @@
 
 # HomePiNAS - Premium Dashboard for Raspberry Pi / Debian / Ubuntu
 # Universal Installer with automatic OS detection
-# Version: 2.11.0 (Homelabs.club Edition)
+# Version: 2.11.1 (Homelabs.club Edition)
 
 # Version - CHANGE THIS FOR EACH RELEASE
 # Version is read from package.json after clone/pull - this is a fallback display only
-APP_VERSION="2.11.0"
+APP_VERSION="2.11.1"
 
 # Parse command line arguments
 CLEAN_INSTALL=false
