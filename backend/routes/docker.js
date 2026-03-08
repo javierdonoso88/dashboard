@@ -368,16 +368,47 @@ router.post('/update', requireAuth, async (req, res) => {
             });
         });
 
-        // Recreate container with same config
-        const newContainer = await docker.createContainer({
+        // Recreate container preserving full configuration
+        // HostConfig already includes: RestartPolicy, NetworkMode, CapAdd,
+        // CapDrop, Binds, PortBindings, Devices, etc.
+        const createOpts = {
             Image: imageName,
             name: containerName,
             Env: config.Env,
             ExposedPorts: config.ExposedPorts,
             HostConfig: hostConfig,
             Labels: config.Labels,
-            Volumes: config.Volumes
-        });
+            Volumes: config.Volumes,
+            Cmd: config.Cmd,
+            Entrypoint: config.Entrypoint,
+            WorkingDir: config.WorkingDir,
+            User: config.User || undefined,
+            Tty: config.Tty || false,
+            OpenStdin: config.OpenStdin || false,
+        };
+
+        // Preserve custom network connections (non-default)
+        const networkNames = Object.keys(info.NetworkSettings.Networks || {});
+        const customNetworks = networkNames.filter(n => n !== 'bridge' && n !== 'host' && n !== 'none');
+
+        const newContainer = await docker.createContainer(createOpts);
+
+        // Reconnect to custom networks with original settings (aliases, IPs)
+        for (const netName of customNetworks) {
+            const netConfig = info.NetworkSettings.Networks[netName];
+            try {
+                const network = docker.getNetwork(netName);
+                await network.connect({
+                    Container: newContainer.id,
+                    EndpointConfig: {
+                        IPAMConfig: netConfig.IPAMConfig || undefined,
+                        Aliases: netConfig.Aliases || undefined,
+                    }
+                });
+            } catch (e) {
+                console.warn(`Failed to reconnect network ${netName}:`, e.message);
+            }
+        }
 
         // Start the new container
         await newContainer.start();
