@@ -4599,6 +4599,17 @@ function toggleDHCP(interfaceId, isChecked, iface) {
     // Update local state
     localDhcpState[interfaceId] = isChecked;
 
+    // When switching to manual, try to populate gateway if empty
+    if (!isChecked && !iface.gateway) {
+        // Attempt to infer gateway from the IP (common pattern: x.x.x.1)
+        if (iface.ip) {
+            const parts = iface.ip.split('.');
+            if (parts.length === 4) {
+                iface.gateway = `${parts[0]}.${parts[1]}.${parts[2]}.1`;
+            }
+        }
+    }
+
     // Re-render only the form for this interface
     const netForm = document.getElementById(`netform-${interfaceId}`);
     if (netForm) {
