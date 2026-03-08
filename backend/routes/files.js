@@ -13,6 +13,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/rbac');
 const { logSecurityEvent } = require('../utils/security');
 const { sanitizePathWithinBase } = require('../utils/sanitize');
+const { getData } = require('../utils/data');
 
 // Base storage directory - all operations are confined here
 const STORAGE_BASE = '/mnt/storage';
