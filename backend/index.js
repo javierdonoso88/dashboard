@@ -72,7 +72,8 @@ try {
 }
 
 // Configuration
-const VERSION = '2.9.6';
+// Read version from package.json (single source of truth)
+const VERSION = require('../package.json').version;
 const HTTPS_PORT = process.env.HTTPS_PORT || 443;
 const HTTP_PORT = process.env.HTTP_PORT || 80;
 const SSL_CERT_PATH = path.join(__dirname, 'certs', 'server.crt');
