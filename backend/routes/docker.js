@@ -720,7 +720,7 @@ router.put('/compose/:name', requireAuth, async (req, res) => {
 // CONTAINER NOTES
 // =============================================================================
 
-// Get notes for a container
+// Get notes for a container (by ID, resolves container name for lookup)
 router.get('/notes/:containerId', requireAuth, async (req, res) => {
     const { containerId } = req.params;
     
@@ -728,11 +728,22 @@ router.get('/notes/:containerId', requireAuth, async (req, res) => {
         return res.status(400).json({ error: 'Invalid container ID' });
     }
 
+    // Resolve container name for stable key lookup
+    let containerName = containerId;
+    try {
+        const container = docker.getContainer(containerId);
+        const info = await container.inspect();
+        containerName = info.Name.replace('/', '');
+    } catch (e) {
+        // Container may not exist anymore, fallback to ID
+    }
+
     const notes = loadContainerNotes();
-    res.json({ notes: notes[containerId] || '' });
+    // Try by name first, then by ID (backward compatibility)
+    res.json({ notes: notes[containerName] || notes[containerId] || '' });
 });
 
-// Save notes for a container
+// Save notes for a container (stored by name for persistence across updates)
 router.post('/notes/:containerId', requireAuth, async (req, res) => {
     const { containerId } = req.params;
     const { notes } = req.body;
@@ -745,19 +756,34 @@ router.post('/notes/:containerId', requireAuth, async (req, res) => {
         return res.status(400).json({ error: 'Notes must be a string' });
     }
 
+    // Resolve container name as the storage key (survives container recreations)
+    let containerName = containerId;
+    try {
+        const container = docker.getContainer(containerId);
+        const info = await container.inspect();
+        containerName = info.Name.replace('/', '');
+    } catch (e) {
+        // Container may not exist, use ID as fallback
+    }
+
     // Limit notes length
     const safeNotes = notes.substring(0, 5000);
 
     const allNotes = loadContainerNotes();
     
     if (safeNotes.trim()) {
-        allNotes[containerId] = safeNotes;
+        allNotes[containerName] = safeNotes;
     } else {
+        delete allNotes[containerName];
+    }
+
+    // Clean up old ID-based entries if name is different
+    if (containerName !== containerId && allNotes[containerId]) {
         delete allNotes[containerId];
     }
 
     if (saveContainerNotes(allNotes)) {
-        logSecurityEvent('CONTAINER_NOTES_SAVED', { containerId, user: req.user.username }, req.ip);
+        logSecurityEvent('CONTAINER_NOTES_SAVED', { containerName, user: req.user.username }, req.ip);
         res.json({ success: true, message: 'Notes saved' });
     } else {
         res.status(500).json({ error: 'Failed to save notes' });
