@@ -3884,13 +3884,53 @@ async function renderDockerManager() {
 
             if (isRunning) {
                 // Open Web button (if has public ports)
-                const webPort = container.ports?.find(p => p.public);
-                if (webPort) {
+                const publicPorts = (container.ports || []).filter(p => p.public);
+                if (publicPorts.length > 0) {
+                    // Prefer common HTTP ports for the default action
+                    const httpPorts = [80, 443, 8080, 8443, 8888, 9090, 3000, 5000, 9000, 8096, 7878, 8989, 8686, 9696];
+                    const preferredPort = publicPorts.find(p => httpPorts.includes(p.private)) || publicPorts[0];
                     const webBtn = document.createElement('button');
                     webBtn.className = 'docker-action-btn web';
                     webBtn.innerHTML = '🌐 ' + t('docker.openWebUI', 'Web');
-                    webBtn.addEventListener('click', () => {
-                        window.open(`http://${window.location.hostname}:${webPort.public}`, '_blank');
+                    webBtn.addEventListener('click', (e) => {
+                        if (publicPorts.length === 1) {
+                            // Single port — open directly
+                            const proto = preferredPort.private === 443 || preferredPort.private === 8443 ? 'https' : 'http';
+                            window.open(`${proto}://${window.location.hostname}:${preferredPort.public}`, '_blank');
+                        } else {
+                            // Multiple ports — show selector dropdown
+                            const existing = card.querySelector('.docker-port-selector');
+                            if (existing) { existing.remove(); return; }
+                            const selector = document.createElement('div');
+                            selector.className = 'docker-port-selector';
+                            selector.style.cssText = 'position:absolute;z-index:100;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:6px;box-shadow:0 4px 12px rgba(0,0,0,0.15);display:flex;flex-direction:column;gap:4px;';
+                            const rect = webBtn.getBoundingClientRect();
+                            selector.style.top = (webBtn.offsetTop + webBtn.offsetHeight + 4) + 'px';
+                            selector.style.left = webBtn.offsetLeft + 'px';
+                            for (const p of publicPorts) {
+                                const opt = document.createElement('button');
+                                opt.className = 'docker-action-btn web';
+                                opt.style.cssText = 'font-size:0.8rem;padding:4px 10px;white-space:nowrap;';
+                                const isPreferred = p === preferredPort;
+                                opt.textContent = `:${p.public} → ${p.private}${isPreferred ? ' ★' : ''}`;
+                                opt.addEventListener('click', () => {
+                                    const proto = p.private === 443 || p.private === 8443 ? 'https' : 'http';
+                                    window.open(`${proto}://${window.location.hostname}:${p.public}`, '_blank');
+                                    selector.remove();
+                                });
+                                selector.appendChild(opt);
+                            }
+                            // Close on click outside
+                            const closeHandler = (ev) => {
+                                if (!selector.contains(ev.target) && ev.target !== webBtn) {
+                                    selector.remove();
+                                    document.removeEventListener('click', closeHandler);
+                                }
+                            };
+                            setTimeout(() => document.addEventListener('click', closeHandler), 0);
+                            card.style.position = 'relative';
+                            card.appendChild(selector);
+                        }
                     });
                     actionsRow.appendChild(webBtn);
                 }
