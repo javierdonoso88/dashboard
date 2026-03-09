@@ -68,7 +68,11 @@ function parseExports() {
 function buildExportLine(share) {
   const network = share.network || '192.168.1.0/24';
   const options = share.options || 'rw,sync,no_subtree_check';
-  return `${share.path} ${network}(${options})`;
+  // Prepend a comment line with name/description if provided (NFS exports convention)
+  const commentLine = (share.name || share.comment)
+    ? `# ${share.name || ''}${share.comment ? ' — ' + share.comment : ''}\n`
+    : '';
+  return `${commentLine}${share.path} ${network}(${options})`;
 }
 
 /**
@@ -201,7 +205,7 @@ router.get('/shares', requireAdmin, (req, res) => {
  */
 router.post('/shares', requireAdmin, async (req, res) => {
   try {
-    const { path: sharePath, network, readOnly } = req.body;
+    const { path: sharePath, name: shareName, comment, network, readOnly, guestOk } = req.body;
 
     // Validate path is within storage
     if (!sharePath) {
@@ -226,10 +230,14 @@ router.post('/shares', requireAdmin, async (req, res) => {
     // Build the share config
     const shareNetwork = network || '192.168.1.0/24';
     const baseOptions = readOnly ? 'ro' : 'rw';
-    const shareOptions = `${baseOptions},sync,no_subtree_check`;
+    // all_squash maps all client UIDs to anon — effectively guest/public access
+    const guestOption = guestOk ? ',all_squash,anonuid=65534,anongid=65534' : '';
+    const shareOptions = `${baseOptions},sync,no_subtree_check${guestOption}`;
 
     const shareConfig = {
       path: sanitizedPath,
+      name: shareName || '',
+      comment: comment || '',
       network: shareNetwork,
       options: shareOptions,
     };
