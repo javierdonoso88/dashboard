@@ -5,6 +5,7 @@
  * System monitoring: stats, fans, disks
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');
@@ -250,7 +251,7 @@ router.get('/stats', requireAuth, async (req, res) => {
             kernel: osInfo.kernel
         });
     } catch (e) {
-        console.error('Stats error:', e);
+        log.error('Stats error:', e);
         res.status(500).json({ error: 'Failed to fetch system stats' });
     }
 });
@@ -332,7 +333,7 @@ router.post('/fan', requireAuth, (req, res) => {
                     found = true;
                 }
             } catch (e) {
-                console.error('EMC2305 i2c fan control error:', e.message);
+                log.error('EMC2305 i2c fan control error:', e.message);
             }
         }
 
@@ -361,7 +362,7 @@ router.post('/fan', requireAuth, (req, res) => {
             res.status(500).json({ error: 'PWM control not available for this fan' });
         }
     } catch (e) {
-        console.error('Fan control error:', e);
+        log.error('Fan control error:', e);
         res.status(500).json({ error: 'Fan control not available on this system' });
     }
 });
@@ -394,7 +395,7 @@ router.get('/fan/mode', requireAuth, (req, res) => {
             ]
         });
     } catch (e) {
-        console.error('Fan mode read error:', e);
+        log.error('Fan mode read error:', e);
         res.status(500).json({ error: 'Failed to read fan mode' });
     }
 });
@@ -426,7 +427,7 @@ router.post('/fan/mode', requireAuth, (req, res) => {
         logSecurityEvent('FAN_MODE_CHANGE', { mode: validatedMode, user: req.user.username }, req.ip);
         res.json({ success: true, message: `Fan mode set to ${validatedMode}`, mode: validatedMode });
     } catch (e) {
-        console.error('Fan mode set error:', e);
+        log.error('Fan mode set error:', e);
         res.status(500).json({ error: 'Failed to set fan mode' });
     }
 });
@@ -450,7 +451,7 @@ router.get('/disks', async (req, res) => {
                 };
             }
         } catch (e) {
-            console.log('lsblk parse error:', e.message);
+            log.info('lsblk parse error:', e.message);
         }
 
         const blockDevices = await si.blockDevices();
@@ -564,7 +565,7 @@ router.get('/disks', async (req, res) => {
             });
         res.json(disks);
     } catch (e) {
-        console.error('Disk scan error:', e);
+        log.error('Disk scan error:', e);
         res.status(500).json({ error: 'Failed to scan disks' });
     }
 });
@@ -635,7 +636,7 @@ router.get('/arch', requireAuth, async (req, res) => {
             isX86: normalizedArch === 'amd64' || normalizedArch === 'i386'
         });
     } catch (error) {
-        console.error('Architecture detection error:', error);
+        log.error('Architecture detection error:', error);
         res.status(500).json({ error: 'Failed to detect architecture' });
     }
 });

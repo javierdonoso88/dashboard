@@ -6,6 +6,7 @@
  * SECURITY: All inputs validated
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const si = require('systeminformation');
@@ -79,7 +80,7 @@ router.get('/interfaces', requireAuth, async (req, res) => {
 
         res.json(interfaces);
     } catch (e) {
-        console.error('Network interfaces error:', e);
+        log.error('Network interfaces error:', e);
         res.status(500).json({ error: 'Failed to read network interfaces' });
     }
 });
@@ -191,7 +192,7 @@ router.post('/configure', requireAuth, (req, res) => {
                     : `${id} configurado con IP estática ${config.ip}`
             });
         } catch (applyErr) {
-            console.error('nmcli apply error:', applyErr.message);
+            log.error('nmcli apply error:', applyErr.message);
             
             // Fallback: try dhcpcd for older systems
             try {
@@ -236,14 +237,14 @@ router.post('/configure', requireAuth, (req, res) => {
                     });
                 }
             } catch (dhcpcdErr) {
-                console.error('dhcpcd fallback error:', dhcpcdErr.message);
+                log.error('dhcpcd fallback error:', dhcpcdErr.message);
                 res.status(500).json({ 
                     error: `No se pudo aplicar la configuración: ${applyErr.message}` 
                 });
             }
         }
     } catch (e) {
-        console.error('Network config error:', e);
+        log.error('Network config error:', e);
         res.status(500).json({ error: 'Failed to configure network' });
     }
 });

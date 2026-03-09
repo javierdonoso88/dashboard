@@ -3,6 +3,7 @@
  * Manage multi-container applications with docker-compose
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');
@@ -192,7 +193,7 @@ router.get('/list', requireAuth, async (req, res) => {
         
         res.json({ success: true, stacks });
     } catch (e) {
-        console.error('List stacks error:', e);
+        log.error('List stacks error:', e);
         res.status(500).json({ error: e.message });
     }
 });
@@ -263,7 +264,7 @@ router.post('/create', requireAuth, async (req, res) => {
         
         res.json({ success: true, message: 'Stack created', path: stackPath });
     } catch (e) {
-        console.error('Create stack error:', e);
+        log.error('Create stack error:', e);
         res.status(500).json({ error: e.message });
     }
 });
@@ -352,7 +353,7 @@ router.post('/:id/up', requireAuth, async (req, res) => {
         
         res.json({ success: true, message: 'Stack started', output });
     } catch (e) {
-        console.error('Stack up error:', e);
+        log.error('Stack up error:', e);
         res.status(500).json({ error: e.message, output: e.stdout || e.stderr });
     }
 });
@@ -462,7 +463,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
                     stdio: 'pipe'
                 });
             } catch (e) {
-                console.error('Error stopping stack:', e.message);
+                log.error('Error stopping stack:', e.message);
             }
         }
         

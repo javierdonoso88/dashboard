@@ -13,6 +13,7 @@
  * - Find compose file for container
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const Docker = require('dockerode');
@@ -43,7 +44,7 @@ function loadContainerNotes() {
             return JSON.parse(fs.readFileSync(CONTAINER_NOTES_FILE, 'utf8'));
         }
     } catch (e) {
-        console.error('Error loading container notes:', e.message);
+        log.error('Error loading container notes:', e.message);
     }
     return {};
 }
@@ -54,7 +55,7 @@ function saveContainerNotes(notes) {
         fs.writeFileSync(CONTAINER_NOTES_FILE, JSON.stringify(notes, null, 2));
         return true;
     } catch (e) {
-        console.error('Error saving container notes:', e.message);
+        log.error('Error saving container notes:', e.message);
         return false;
     }
 }
@@ -81,7 +82,7 @@ function findComposeForContainer(containerName) {
             }
         }
     } catch (e) {
-        console.error('Error finding compose for container:', e.message);
+        log.error('Error finding compose for container:', e.message);
     }
     return null;
 }
@@ -116,7 +117,7 @@ function loadUpdateCache() {
             return JSON.parse(fs.readFileSync(UPDATE_CACHE_FILE, 'utf8'));
         }
     } catch (e) {
-        console.error('Error loading update cache:', e.message);
+        log.error('Error loading update cache:', e.message);
     }
     return { lastCheck: null, updates: {} };
 }
@@ -126,7 +127,7 @@ function saveUpdateCache(cache) {
     try {
         fs.writeFileSync(UPDATE_CACHE_FILE, JSON.stringify(cache, null, 2));
     } catch (e) {
-        console.error('Error saving update cache:', e.message);
+        log.error('Error saving update cache:', e.message);
     }
 }
 
@@ -206,7 +207,7 @@ router.get('/containers', requireAuth, async (req, res) => {
 
         res.json(result);
     } catch (e) {
-        console.warn('Docker check failed:', e.message);
+        log.warn('Docker check failed:', e.message);
         res.json([]);
     }
 });
@@ -233,7 +234,7 @@ router.post('/action', requireAuth, async (req, res) => {
         if (action === 'restart') await container.restart();
         res.json({ success: true });
     } catch (e) {
-        console.error('Docker action error:', e.message);
+        log.error('Docker action error:', e.message);
         res.status(500).json({ error: 'Docker action failed' });
     }
 });
@@ -313,7 +314,7 @@ router.post('/check-updates', requireAuth, async (req, res) => {
             log: results
         });
     } catch (e) {
-        console.error('Docker update check error:', e);
+        log.error('Docker update check error:', e);
         res.status(500).json({ error: 'Failed to check for updates' });
     }
 });
@@ -406,7 +407,7 @@ router.post('/update', requireAuth, async (req, res) => {
                     }
                 });
             } catch (e) {
-                console.warn(`Failed to reconnect network ${netName}:`, e.message);
+                log.warn(`Failed to reconnect network ${netName}:`, e.message);
             }
         }
 
@@ -424,7 +425,7 @@ router.post('/update', requireAuth, async (req, res) => {
             newContainerId: newContainer.id
         });
     } catch (e) {
-        console.error('Docker update error:', e);
+        log.error('Docker update error:', e);
         res.status(500).json({ error: `Update failed: ${e.message}` });
     }
 });
@@ -469,7 +470,7 @@ router.post('/compose/import', requireAuth, async (req, res) => {
             path: composeFile
         });
     } catch (e) {
-        console.error('Compose import error:', e);
+        log.error('Compose import error:', e);
         res.status(500).json({ error: 'Failed to save compose file' });
     }
 });
@@ -496,7 +497,7 @@ router.get('/compose/list', requireAuth, async (req, res) => {
 
         res.json(composes);
     } catch (e) {
-        console.error('Compose list error:', e);
+        log.error('Compose list error:', e);
         res.status(500).json({ error: 'Failed to list compose files' });
     }
 });
@@ -545,7 +546,7 @@ router.post('/compose/up', requireAuth, async (req, res) => {
             output
         });
     } catch (e) {
-        console.error('Compose up error:', e);
+        log.error('Compose up error:', e);
         res.status(500).json({
             error: 'Failed to start compose',
             details: e.stderr || e.message
@@ -597,7 +598,7 @@ router.post('/compose/down', requireAuth, async (req, res) => {
             output
         });
     } catch (e) {
-        console.error('Compose down error:', e);
+        log.error('Compose down error:', e);
         res.status(500).json({ error: 'Failed to stop compose' });
     }
 });
@@ -642,7 +643,7 @@ router.delete('/compose/:name', requireAuth, async (req, res) => {
 
         res.json({ success: true, message: `Compose "${safeName}" deleted` });
     } catch (e) {
-        console.error('Compose delete error:', e);
+        log.error('Compose delete error:', e);
         res.status(500).json({ error: 'Failed to delete compose' });
     }
 });
@@ -850,7 +851,7 @@ router.get('/logs/:containerId', requireAuth, async (req, res) => {
             containerId
         });
     } catch (e) {
-        console.error('Container logs error:', e.message);
+        log.error('Container logs error:', e.message);
         res.status(500).json({ error: 'Failed to get container logs' });
     }
 });

@@ -5,6 +5,7 @@
  * SQLite-backed persistent session storage
  */
 
+const log = require('./logger');
 const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
@@ -32,7 +33,7 @@ function initSessionDb() {
         try {
             fs.chmodSync(SESSION_DB_PATH, 0o600);
         } catch (e) {
-            console.warn('Could not set restrictive permissions on session database');
+            log.warn('Could not set restrictive permissions on session database');
         }
 
         sessionDb.exec(`
@@ -66,12 +67,12 @@ function initSessionDb() {
             )
         `);
 
-        console.log('Session database initialized at', SESSION_DB_PATH);
+        log.info('Session database initialized at', SESSION_DB_PATH);
         cleanExpiredSessions();
 
         return true;
     } catch (e) {
-        console.error('Failed to initialize session database:', e.message);
+        log.error('Failed to initialize session database:', e.message);
         return false;
     }
 }
@@ -84,7 +85,7 @@ function createSession(username) {
     const expiresAt = Date.now() + SESSION_DURATION;
 
     if (!sessionDb) {
-        console.error('Session database not initialized');
+        log.error('Session database not initialized');
         return null;
     }
 
@@ -96,7 +97,7 @@ function createSession(username) {
         stmt.run(sessionId, username, expiresAt);
         return sessionId;
     } catch (e) {
-        console.error('Failed to create session:', e.message);
+        log.error('Failed to create session:', e.message);
         return null;
     }
 }
@@ -147,7 +148,7 @@ function validateSession(sessionId) {
             expiresAt: session.expires_at
         };
     } catch (e) {
-        console.error('Failed to validate session:', e.message);
+        log.error('Failed to validate session:', e.message);
         return null;
     }
 }
@@ -162,7 +163,7 @@ function destroySession(sessionId) {
         const stmt = sessionDb.prepare('DELETE FROM sessions WHERE session_id = ?');
         stmt.run(sessionId);
     } catch (e) {
-        console.error('Failed to destroy session:', e.message);
+        log.error('Failed to destroy session:', e.message);
     }
 }
 
@@ -175,7 +176,7 @@ function clearAllSessions() {
     try {
         sessionDb.exec('DELETE FROM sessions');
     } catch (e) {
-        console.error('Failed to clear sessions:', e.message);
+        log.error('Failed to clear sessions:', e.message);
     }
 }
 
@@ -197,10 +198,10 @@ function cleanExpiredSessions() {
         `);
         const result = stmt.run(now, idleThreshold);
         if (result.changes > 0) {
-            console.log(`Cleaned ${result.changes} expired/idle sessions`);
+            log.info(`Cleaned ${result.changes} expired/idle sessions`);
         }
     } catch (e) {
-        console.error('Failed to clean expired sessions:', e.message);
+        log.error('Failed to clean expired sessions:', e.message);
     }
 }
 
@@ -232,7 +233,7 @@ function storeCsrfToken(sessionId, token) {
         stmt.run(sessionId, token, Date.now());
         return true;
     } catch (e) {
-        console.error('Failed to store CSRF token:', e.message);
+        log.error('Failed to store CSRF token:', e.message);
         return false;
     }
 }
@@ -259,7 +260,7 @@ function getCsrfTokenFromDb(sessionId) {
         
         return { token: row.token, createdAt: row.created_at };
     } catch (e) {
-        console.error('Failed to get CSRF token:', e.message);
+        log.error('Failed to get CSRF token:', e.message);
         return null;
     }
 }
@@ -274,7 +275,7 @@ function deleteCsrfToken(sessionId) {
         const stmt = sessionDb.prepare('DELETE FROM csrf_tokens WHERE session_id = ?');
         stmt.run(sessionId);
     } catch (e) {
-        console.error('Failed to delete CSRF token:', e.message);
+        log.error('Failed to delete CSRF token:', e.message);
     }
 }
 
@@ -289,10 +290,10 @@ function cleanExpiredCsrfTokens() {
         const stmt = sessionDb.prepare('DELETE FROM csrf_tokens WHERE created_at < ?');
         const result = stmt.run(threshold);
         if (result.changes > 0) {
-            console.log(`Cleaned ${result.changes} expired CSRF tokens`);
+            log.info(`Cleaned ${result.changes} expired CSRF tokens`);
         }
     } catch (e) {
-        console.error('Failed to clean CSRF tokens:', e.message);
+        log.error('Failed to clean CSRF tokens:', e.message);
     }
 }
 

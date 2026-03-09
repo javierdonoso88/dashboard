@@ -6,6 +6,7 @@
  * and in-process mutex to prevent concurrent write corruption.
  */
 
+const log = require('./logger');
 const fs = require('fs');
 const path = require('path');
 
@@ -106,7 +107,7 @@ function getData() {
         const content = fs.readFileSync(DATA_FILE, 'utf8');
         return JSON.parse(content);
     } catch (e) {
-        console.error('Error reading data file:', e.message);
+        log.error('Error reading data file:', e.message);
         fs.writeFileSync(DATA_FILE, JSON.stringify(initialState, null, 2));
         return initialState;
     }
@@ -123,7 +124,7 @@ function saveData(data) {
         fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), { mode: 0o600 });
         fs.renameSync(tmpFile, DATA_FILE);
     } catch (e) {
-        console.error('Error saving data file:', e.message);
+        log.error('Error saving data file:', e.message);
         // Clean up temp file on failure
         try { fs.unlinkSync(DATA_FILE + '.tmp.' + process.pid); } catch {}
         throw new Error('Failed to save configuration');

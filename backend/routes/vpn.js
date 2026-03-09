@@ -18,6 +18,7 @@
  * - wg syncconf para recargar sin desconectar peers
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
@@ -72,7 +73,7 @@ try {
         const lockAge = Date.now() - fs.statSync(INSTALL_LOCK_FILE).mtimeMs;
         if (lockAge > 600000) { // > 10 minutos = instalación zombi
             fs.unlinkSync(INSTALL_LOCK_FILE);
-            console.warn('[VPN] Lock de instalación huérfano eliminado (>10 min)');
+            log.warn('[VPN] Lock de instalación huérfano eliminado (>10 min)');
         } else {
             installState.error = 'Instalación interrumpida por reinicio del servidor. Inténtelo de nuevo.';
             fs.unlinkSync(INSTALL_LOCK_FILE);
@@ -133,7 +134,7 @@ async function getDefaultInterface() {
         const match = stdout.match(/dev\s+(\S+)/);
         if (match && match[1]) return match[1];
     } catch (e) {
-        console.warn('[VPN] No se pudo detectar interfaz por defecto via ip route:', e.message);
+        log.warn('[VPN] No se pudo detectar interfaz por defecto via ip route:', e.message);
     }
 
     // Fallback: buscar primera interfaz IPv4 no-interna
@@ -438,13 +439,13 @@ async function reloadWireguard() {
 
         await sudoExec('wg', ['syncconf', 'wg0', tmpStripped]);
         fs.unlinkSync(tmpStripped);
-        console.log('[VPN] Configuración recargada con wg syncconf (sin desconectar peers)');
+        log.info('[VPN] Configuración recargada con wg syncconf (sin desconectar peers)');
     } catch (e) {
-        console.warn('[VPN] wg syncconf falló, haciendo restart completo:', e.message);
+        log.warn('[VPN] wg syncconf falló, haciendo restart completo:', e.message);
         try {
             await sudoExec('systemctl', ['restart', 'wg-quick@wg0']);
         } catch (restartErr) {
-            console.error('[VPN] Error en restart fallback:', restartErr.message);
+            log.error('[VPN] Error en restart fallback:', restartErr.message);
         }
     }
 }
@@ -476,7 +477,7 @@ async function releaseDpkgLocks() {
     }
 
     if (!hasLocks) {
-        console.log('[VPN] No se detectaron locks de dpkg activos');
+        log.info('[VPN] No se detectaron locks de dpkg activos');
         return;
     }
 
@@ -485,7 +486,7 @@ async function releaseDpkgLocks() {
     for (const procName of processNames) {
         try {
             await sudoExec('killall', ['-TERM', procName], { timeout: 5000 });
-            console.log(`[VPN] SIGTERM enviado a ${procName}`);
+            log.info(`[VPN] SIGTERM enviado a ${procName}`);
         } catch {
             // No hay proceso corriendo → ok
         }
@@ -514,7 +515,7 @@ async function releaseDpkgLocks() {
         }
     }
 
-    console.log('[VPN] Locks de dpkg liberados');
+    log.info('[VPN] Locks de dpkg liberados');
 }
 
 /**
@@ -592,7 +593,7 @@ router.get('/status', async (req, res) => {
                         }
                     }
                 } catch (e) {
-                    console.error('[VPN] Error leyendo peers:', e.message);
+                    log.error('[VPN] Error leyendo peers:', e.message);
                 }
             }
         }
@@ -635,7 +636,7 @@ router.get('/status', async (req, res) => {
             connectedPeers
         });
     } catch (err) {
-        console.error('[VPN] Error obteniendo estado:', err);
+        log.error('[VPN] Error obteniendo estado:', err);
         res.status(500).json({ success: false, error: 'Error obteniendo estado VPN' });
     }
 });
@@ -671,13 +672,13 @@ router.post('/install', async (req, res) => {
 
         // Ejecutar instalación async (no bloquea la respuesta HTTP)
         runInstallBackground(req.user).catch(err => {
-            console.error('[VPN] Error en instalación background:', err);
+            log.error('[VPN] Error en instalación background:', err);
             installState.running = false;
             installState.error = err.message;
         });
 
     } catch (err) {
-        console.error('[VPN] Error instalando:', err);
+        log.error('[VPN] Error instalando:', err);
         res.status(500).json({ success: false, error: `Error instalando WireGuard: ${err.message}` });
     }
 });
@@ -704,7 +705,7 @@ async function runInstallBackground(user) {
         try {
             await sudoExec('dpkg', ['--configure', '-a'], { timeout: 120000, ...nonInteractiveEnv });
         } catch (e) {
-            console.warn('[VPN] dpkg --configure -a falló (puede no ser necesario):', e.message);
+            log.warn('[VPN] dpkg --configure -a falló (puede no ser necesario):', e.message);
         }
 
         // Paso 3: apt-get update
@@ -768,10 +769,10 @@ async function runInstallBackground(user) {
         try { fs.unlinkSync(INSTALL_LOCK_FILE); } catch { /* ignore */ }
 
         logSecurityEvent('vpn_installed', { user, port: vpnConfig.port });
-        console.log('[VPN] Instalación completada exitosamente');
+        log.info('[VPN] Instalación completada exitosamente');
 
     } catch (err) {
-        console.error('[VPN] Error en instalación:', err);
+        log.error('[VPN] Error en instalación:', err);
         installState.step = `Error: ${err.message}`;
         installState.error = err.message;
         installState.running = false;
@@ -805,7 +806,7 @@ router.post('/start', async (req, res) => {
             running: status === 'active'
         });
     } catch (err) {
-        console.error('[VPN] Error iniciando:', err);
+        log.error('[VPN] Error iniciando:', err);
         res.status(500).json({ success: false, error: `Error iniciando VPN: ${err.message}` });
     }
 });
@@ -822,7 +823,7 @@ router.post('/stop', async (req, res) => {
 
         res.json({ success: true, message: 'Servidor VPN detenido' });
     } catch (err) {
-        console.error('[VPN] Error deteniendo:', err);
+        log.error('[VPN] Error deteniendo:', err);
         res.status(500).json({ success: false, error: `Error deteniendo VPN: ${err.message}` });
     }
 });
@@ -846,7 +847,7 @@ router.post('/restart', async (req, res) => {
             running: status === 'active'
         });
     } catch (err) {
-        console.error('[VPN] Error reiniciando:', err);
+        log.error('[VPN] Error reiniciando:', err);
         res.status(500).json({ success: false, error: `Error reiniciando VPN: ${err.message}` });
     }
 });
@@ -915,7 +916,7 @@ router.put('/config', async (req, res) => {
 
         res.json({ success: true, message: 'Configuración actualizada' });
     } catch (err) {
-        console.error('[VPN] Error actualizando config:', err);
+        log.error('[VPN] Error actualizando config:', err);
         res.status(500).json({ success: false, error: `Error actualizando configuración: ${err.message}` });
     }
 });
@@ -983,7 +984,7 @@ router.post('/clients', async (req, res) => {
             const stdout = await spawnWithStdin('qrencode', ['-t', 'SVG', '-o', '-'], clientConf);
             qrSvg = stdout;
         } catch (e) {
-            console.warn('[VPN] No se pudo generar QR:', e.message);
+            log.warn('[VPN] No se pudo generar QR:', e.message);
         }
 
         // Si el servicio está activo, recargar sin desconectar peers
@@ -1007,7 +1008,7 @@ router.post('/clients', async (req, res) => {
             qrSvg
         });
     } catch (err) {
-        console.error('[VPN] Error creando cliente:', err);
+        log.error('[VPN] Error creando cliente:', err);
         res.status(500).json({ success: false, error: `Error creando cliente: ${err.message}` });
     }
 });
@@ -1041,7 +1042,7 @@ router.get('/clients/:id/config', async (req, res) => {
             const stdout = await spawnWithStdin('qrencode', ['-t', 'SVG', '-o', '-'], clientConf);
             qrSvg = stdout;
         } catch (e) {
-            console.warn('[VPN] No se pudo generar QR:', e.message);
+            log.warn('[VPN] No se pudo generar QR:', e.message);
         }
 
         res.json({
@@ -1055,7 +1056,7 @@ router.get('/clients/:id/config', async (req, res) => {
             qrSvg
         });
     } catch (err) {
-        console.error('[VPN] Error obteniendo config cliente:', err);
+        log.error('[VPN] Error obteniendo config cliente:', err);
         res.status(500).json({ success: false, error: 'Error obteniendo configuración del cliente' });
     }
 });
@@ -1098,7 +1099,7 @@ router.delete('/clients/:id', async (req, res) => {
 
         res.json({ success: true, message: `Cliente ${client.name} revocado` });
     } catch (err) {
-        console.error('[VPN] Error revocando cliente:', err);
+        log.error('[VPN] Error revocando cliente:', err);
         res.status(500).json({ success: false, error: 'Error revocando cliente' });
     }
 });
@@ -1122,7 +1123,7 @@ router.post('/uninstall', async (req, res) => {
         try {
             await sudoExec('dpkg', ['--configure', '-a'], { timeout: 120000, ...nonInteractiveEnv });
         } catch (e) {
-            console.warn('[VPN] dpkg --configure -a falló:', e.message);
+            log.warn('[VPN] dpkg --configure -a falló:', e.message);
         }
 
         // Desinstalar paquetes
@@ -1139,7 +1140,7 @@ router.post('/uninstall', async (req, res) => {
 
         res.json({ success: true, message: 'WireGuard desinstalado' });
     } catch (err) {
-        console.error('[VPN] Error desinstalando:', err);
+        log.error('[VPN] Error desinstalando:', err);
         res.status(500).json({ success: false, error: `Error desinstalando: ${err.message}` });
     }
 });

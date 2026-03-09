@@ -5,6 +5,7 @@
  * Supports setup, verification, validation, and disabling of 2FA.
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const { TOTP, Secret } = require('otpauth');
@@ -77,7 +78,7 @@ router.get('/status', async (req, res) => {
       enabled: user.totpEnabled === true
     });
   } catch (error) {
-    console.error('Error checking TOTP status:', error);
+    log.error('Error checking TOTP status:', error);
     res.status(500).json({ success: false, error: 'Failed to check 2FA status' });
   }
 });
@@ -133,7 +134,7 @@ router.post('/setup', async (req, res) => {
       qr: uri // Frontend will use this to render a QR code
     });
   } catch (error) {
-    console.error('Error setting up TOTP:', error);
+    log.error('Error setting up TOTP:', error);
     res.status(500).json({ success: false, error: 'Failed to set up 2FA' });
   }
 });
@@ -189,7 +190,7 @@ router.post('/verify', async (req, res) => {
 
     res.json({ success: true, message: '2FA has been enabled successfully' });
   } catch (error) {
-    console.error('Error verifying TOTP:', error);
+    log.error('Error verifying TOTP:', error);
     res.status(500).json({ success: false, error: 'Failed to verify TOTP code' });
   }
 });
@@ -246,7 +247,7 @@ router.post('/validate', async (req, res) => {
 
     res.json({ success: true, message: 'TOTP code is valid' });
   } catch (error) {
-    console.error('Error validating TOTP:', error);
+    log.error('Error validating TOTP:', error);
     res.status(500).json({ success: false, error: 'Failed to validate TOTP code' });
   }
 });
@@ -300,7 +301,7 @@ router.delete('/disable', async (req, res) => {
 
     res.json({ success: true, message: '2FA has been disabled' });
   } catch (error) {
-    console.error('Error disabling TOTP:', error);
+    log.error('Error disabling TOTP:', error);
     res.status(500).json({ success: false, error: 'Failed to disable 2FA' });
   }
 });

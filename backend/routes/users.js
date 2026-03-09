@@ -3,6 +3,7 @@
  * Multi-user system with roles: admin, user, readonly
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
@@ -130,7 +131,7 @@ async function createSambaUser(username, password) {
     });
     execFileSync('sudo', ['smbpasswd', '-e', username], { encoding: 'utf8' });
   } catch (err) {
-    console.warn('Could not set Samba password:', err.message);
+    log.warn('Could not set Samba password:', err.message);
   }
 }
 
@@ -142,12 +143,12 @@ async function removeSambaUser(username) {
   try {
     execFileSync('sudo', ['smbpasswd', '-x', username], { encoding: 'utf8', timeout: 10000 });
   } catch (err) {
-    console.warn('Could not remove Samba user:', err.message);
+    log.warn('Could not remove Samba user:', err.message);
   }
   try {
     execFileSync('sudo', ['userdel', username], { encoding: 'utf8', timeout: 10000 });
   } catch (err) {
-    console.warn('Could not remove system user:', err.message);
+    log.warn('Could not remove system user:', err.message);
   }
 }
 
@@ -167,7 +168,7 @@ router.get('/me', (req, res) => {
     }
     res.json(sanitizeUser(user));
   } catch (err) {
-    console.error('Get current user error:', err.message);
+    log.error('Get current user error:', err.message);
     res.status(500).json({ error: 'Failed to get user info' });
   }
 });
@@ -226,13 +227,13 @@ router.put('/me/password', async (req, res) => {
         setTimeout(() => { proc.kill(); resolve(); }, 10000);
       });
     } catch {
-      console.warn('Samba password update failed for', req.user.username);
+      log.warn('Samba password update failed for', req.user.username);
     }
 
     logSecurityEvent('PASSWORD_CHANGED', { user: req.user.username }, req.ip);
     res.json({ message: 'Password changed successfully' });
   } catch (err) {
-    console.error('Password change error:', err.message);
+    log.error('Password change error:', err.message);
     res.status(500).json({ error: 'Failed to change password' });
   }
 });
@@ -250,7 +251,7 @@ router.get('/', requireAdmin, (req, res) => {
       count: users.length,
     });
   } catch (err) {
-    console.error('List users error:', err.message);
+    log.error('List users error:', err.message);
     res.status(500).json({ error: 'Failed to list users' });
   }
 });
@@ -320,7 +321,7 @@ router.post('/', requireAdmin, async (req, res) => {
       user: sanitizeUser(newUser),
     });
   } catch (err) {
-    console.error('Create user error:', err.message);
+    log.error('Create user error:', err.message);
     res.status(500).json({ error: 'Failed to create user' });
   }
 });
@@ -375,7 +376,7 @@ router.put('/:username', requireAdmin, async (req, res) => {
           setTimeout(() => { proc.kill(); resolve(); }, 10000);
         });
       } catch (err) {
-        console.warn('Samba password update failed for', users[userIndex].username, err.message);
+        log.warn('Samba password update failed for', users[userIndex].username, err.message);
       }
     }
 
@@ -395,7 +396,7 @@ router.put('/:username', requireAdmin, async (req, res) => {
       user: sanitizeUser(users[userIndex]),
     });
   } catch (err) {
-    console.error('Update user error:', err.message);
+    log.error('Update user error:', err.message);
     res.status(500).json({ error: 'Failed to update user' });
   }
 });
@@ -437,7 +438,7 @@ router.delete('/:username', requireAdmin, async (req, res) => {
 
     res.json({ message: `User '${deletedUser.username}' deleted successfully` });
   } catch (err) {
-    console.error('Delete user error:', err.message);
+    log.error('Delete user error:', err.message);
     res.status(500).json({ error: 'Failed to delete user' });
   }
 });
@@ -485,7 +486,7 @@ router.put('/:username/paths', requireAdmin, async (req, res) => {
             execFileSync('sudo', ['chmod', '750', homePath], { timeout: 5000 });
           }
         } catch (e) {
-          console.warn('Could not create home directory:', e.message);
+          log.warn('Could not create home directory:', e.message);
         }
       }
     }
@@ -518,7 +519,7 @@ router.put('/:username/paths', requireAdmin, async (req, res) => {
       user: sanitizeUser(users[userIndex]),
     });
   } catch (err) {
-    console.error('Update user paths error:', err.message);
+    log.error('Update user paths error:', err.message);
     res.status(500).json({ error: 'Failed to update user paths' });
   }
 });
@@ -540,7 +541,7 @@ router.get('/:username/paths', requireAdmin, (req, res) => {
       allowedPaths: user.allowedPaths || [],
     });
   } catch (err) {
-    console.error('Get user paths error:', err.message);
+    log.error('Get user paths error:', err.message);
     res.status(500).json({ error: 'Failed to get user paths' });
   }
 });

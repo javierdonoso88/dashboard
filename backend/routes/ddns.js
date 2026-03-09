@@ -5,6 +5,7 @@
  * Includes background updater that checks every 5 minutes.
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
@@ -272,7 +273,7 @@ router.get('/services', (req, res) => {
 
     res.json({ success: true, services: safeServices });
   } catch (err) {
-    console.error('Error listing DDNS services:', err);
+    log.error('Error listing DDNS services:', err);
     res.status(500).json({ success: false, error: 'Failed to list DDNS services' });
   }
 });
@@ -343,7 +344,7 @@ router.post('/services', (req, res) => {
 
     res.status(201).json({ success: true, service: safeService });
   } catch (err) {
-    console.error('Error adding DDNS service:', err);
+    log.error('Error adding DDNS service:', err);
     res.status(500).json({ success: false, error: 'Failed to add DDNS service' });
   }
 });
@@ -410,7 +411,7 @@ router.put('/services/:id', (req, res) => {
 
     res.json({ success: true, service: safeService });
   } catch (err) {
-    console.error('Error updating DDNS service:', err);
+    log.error('Error updating DDNS service:', err);
     res.status(500).json({ success: false, error: 'Failed to update DDNS service' });
   }
 });
@@ -441,7 +442,7 @@ router.delete('/services/:id', (req, res) => {
 
     res.json({ success: true, message: 'DDNS service removed' });
   } catch (err) {
-    console.error('Error deleting DDNS service:', err);
+    log.error('Error deleting DDNS service:', err);
     res.status(500).json({ success: false, error: 'Failed to delete DDNS service' });
   }
 });
@@ -488,7 +489,7 @@ router.post('/services/:id/update', ddnsLimiter, async (req, res) => {
 
     res.json({ success: true, ip, ...result });
   } catch (err) {
-    console.error('Error forcing DDNS update:', err);
+    log.error('Error forcing DDNS update:', err);
 
     // Store the error
     const data = getData();
@@ -513,7 +514,7 @@ router.get('/public-ip', async (req, res) => {
     lastKnownIp = ip;
     res.json({ success: true, ip });
   } catch (err) {
-    console.error('Error getting public IP:', err);
+    log.error('Error getting public IP:', err);
     res.status(500).json({ success: false, error: 'Failed to get public IP' });
   }
 });
@@ -534,7 +535,7 @@ router.get('/status', async (req, res) => {
       currentIp = await getPublicIp();
       lastKnownIp = currentIp;
     } catch (ipErr) {
-      console.error('Could not fetch public IP for status:', ipErr);
+      log.error('Could not fetch public IP for status:', ipErr);
     }
 
     const statuses = services.map(s => ({
@@ -554,7 +555,7 @@ router.get('/status', async (req, res) => {
       services: statuses
     });
   } catch (err) {
-    console.error('Error getting DDNS status:', err);
+    log.error('Error getting DDNS status:', err);
     res.status(500).json({ success: false, error: 'Failed to get DDNS status' });
   }
 });
@@ -574,7 +575,7 @@ const ddnsInterval = setInterval(async () => {
     try {
       currentIp = await getPublicIp();
     } catch (ipErr) {
-      console.error('DDNS background updater: failed to get public IP:', ipErr.message);
+      log.error('DDNS background updater: failed to get public IP:', ipErr.message);
       return;
     }
 
@@ -583,7 +584,7 @@ const ddnsInterval = setInterval(async () => {
       return;
     }
 
-    console.log(`DDNS: IP changed from ${lastKnownIp} to ${currentIp}, updating services...`);
+    log.info(`DDNS: IP changed from ${lastKnownIp} to ${currentIp}, updating services...`);
     lastKnownIp = currentIp;
 
     // Get all enabled services
@@ -609,7 +610,7 @@ const ddnsInterval = setInterval(async () => {
           lastError: null
         });
 
-        console.log(`DDNS: Updated ${service.provider} (${getServiceDisplayName(service)}) to ${currentIp}`);
+        log.info(`DDNS: Updated ${service.provider} (${getServiceDisplayName(service)}) to ${currentIp}`);
       } catch (updateErr) {
         service.lastError = updateErr.message;
         serviceStatus.set(service.id, {
@@ -617,14 +618,14 @@ const ddnsInterval = setInterval(async () => {
           lastIp: service.lastIp,
           lastError: updateErr.message
         });
-        console.error(`DDNS: Failed to update ${service.provider} (${getServiceDisplayName(service)}):`, updateErr.message);
+        log.error(`DDNS: Failed to update ${service.provider} (${getServiceDisplayName(service)}):`, updateErr.message);
       }
     }
 
     // Save all updates
     saveData(data);
   } catch (err) {
-    console.error('DDNS background updater error:', err);
+    log.error('DDNS background updater error:', err);
   }
 }, DDNS_UPDATE_INTERVAL);
 

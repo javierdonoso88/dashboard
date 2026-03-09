@@ -10,6 +10,7 @@
  * - Disk mount status
  */
 
+const log = require('./logger');
 const { execFileSync } = require('child_process');
 const { sendViaTelegram } = require('./notify');
 const { getData } = require('./data');
@@ -150,7 +151,7 @@ async function runHealthChecks() {
                 }
             }
         } catch (e) {
-            console.error('Health check - disk scan error:', e.message);
+            log.error('Health check - disk scan error:', e.message);
         }
 
         // ══════════════════════════════════════════════════════════
@@ -235,7 +236,7 @@ async function runHealthChecks() {
         }
 
     } catch (e) {
-        console.error('Health monitor error:', e);
+        log.error('Health monitor error:', e);
     }
     
     // Send alerts
@@ -245,7 +246,7 @@ async function runHealthChecks() {
             // Small delay between messages to avoid rate limiting
             await new Promise(r => setTimeout(r, 500));
         } catch (e) {
-            console.error('Failed to send alert:', e.message);
+            log.error('Failed to send alert:', e.message);
         }
     }
     
@@ -276,18 +277,18 @@ let monitorInterval = null;
 function startHealthMonitor(intervalMs = 300000) { // Default: every 5 minutes
     if (monitorInterval) return;
     
-    console.log(`[HEALTH] Monitor started (interval: ${intervalMs / 1000}s)`);
+    log.info(`[HEALTH] Monitor started (interval: ${intervalMs / 1000}s)`);
     
     // Run first check after 30s (let server start up)
     setTimeout(() => {
         runHealthChecks().then(count => {
-            if (count > 0) console.log(`[HEALTH] Sent ${count} alerts`);
+            if (count > 0) log.info(`[HEALTH] Sent ${count} alerts`);
         });
     }, 30000);
     
     monitorInterval = setInterval(() => {
         runHealthChecks().then(count => {
-            if (count > 0) console.log(`[HEALTH] Sent ${count} alerts`);
+            if (count > 0) log.info(`[HEALTH] Sent ${count} alerts`);
         });
     }, intervalMs);
 }
@@ -296,7 +297,7 @@ function stopHealthMonitor() {
     if (monitorInterval) {
         clearInterval(monitorInterval);
         monitorInterval = null;
-        console.log('[HEALTH] Monitor stopped');
+        log.info('[HEALTH] Monitor stopped');
     }
 }
 

@@ -5,6 +5,7 @@
  * Provides CRUD operations for scheduled tasks and writes them to system crontab.
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');
@@ -139,7 +140,7 @@ router.get('/tasks', (req, res) => {
     const tasks = data.scheduledTasks || [];
     res.json({ success: true, tasks });
   } catch (err) {
-    console.error('Error listing tasks:', err);
+    log.error('Error listing tasks:', err);
     res.status(500).json({ success: false, error: 'Failed to list scheduled tasks' });
   }
 });
@@ -211,7 +212,7 @@ router.post('/tasks', async (req, res) => {
 
     res.status(201).json({ success: true, task });
   } catch (err) {
-    console.error('Error creating task:', err);
+    log.error('Error creating task:', err);
     res.status(500).json({ success: false, error: 'Failed to create task' });
   }
 });
@@ -291,7 +292,7 @@ router.put('/tasks/:id', async (req, res) => {
 
     res.json({ success: true, task });
   } catch (err) {
-    console.error('Error updating task:', err);
+    log.error('Error updating task:', err);
     res.status(500).json({ success: false, error: 'Failed to update task' });
   }
 });
@@ -319,7 +320,7 @@ router.delete('/tasks/:id', async (req, res) => {
 
     res.json({ success: true, message: 'Task deleted' });
   } catch (err) {
-    console.error('Error deleting task:', err);
+    log.error('Error deleting task:', err);
     res.status(500).json({ success: false, error: 'Failed to delete task' });
   }
 });
@@ -389,7 +390,7 @@ router.post('/tasks/:id/run', (req, res) => {
       });
     });
   } catch (err) {
-    console.error('Error executing task:', err);
+    log.error('Error executing task:', err);
     res.status(500).json({ success: false, error: 'Failed to execute task' });
   }
 });
@@ -425,7 +426,7 @@ router.post('/tasks/:id/toggle', async (req, res) => {
 
     res.json({ success: true, task });
   } catch (err) {
-    console.error('Error toggling task:', err);
+    log.error('Error toggling task:', err);
     res.status(500).json({ success: false, error: 'Failed to toggle task' });
   }
 });

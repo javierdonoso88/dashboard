@@ -5,6 +5,7 @@
  * Handles WebSocket connections for web terminal
  */
 
+const log = require('./logger');
 const WebSocket = require('ws');
 const pty = require('node-pty');
 const { execFileSync } = require('child_process');
@@ -85,14 +86,14 @@ function setupTerminalWebSocket(server) {
             return;
         }
 
-        console.log(`[Terminal] New session: ${sessionId}, command: ${command}, user: ${session.username}`);
+        log.info(`[Terminal] New session: ${sessionId}, command: ${command}, user: ${session.username}`);
 
         // Get base command (first word)
         const baseCmd = command.split(' ')[0].split('/').pop();
 
         // Check if command exists — do NOT auto-install (security risk)
         if (!commandExists(baseCmd)) {
-            console.log(`[Terminal] Command not found: ${baseCmd}`);
+            log.info(`[Terminal] Command not found: ${baseCmd}`);
             const pkg = COMMAND_PACKAGES[baseCmd] || baseCmd;
             ws.send(JSON.stringify({
                 type: 'output',
@@ -129,7 +130,7 @@ function setupTerminalWebSocket(server) {
                 }
             });
         } catch (err) {
-            console.error('[Terminal] Failed to spawn PTY:', err);
+            log.error('[Terminal] Failed to spawn PTY:', err);
             ws.send(JSON.stringify({ type: 'error', message: 'Failed to start terminal' }));
             ws.close(1011, 'Failed to start terminal');
             return;
@@ -164,7 +165,7 @@ function setupTerminalWebSocket(server) {
 
         // Handle PTY exit
         ptyProcess.onExit(({ exitCode, signal }) => {
-            console.log(`[Terminal] PTY exited: ${sessionId}, code: ${exitCode}, signal: ${signal}`);
+            log.info(`[Terminal] PTY exited: ${sessionId}, code: ${exitCode}, signal: ${signal}`);
             terminalSessions.delete(sessionId);
             
             if (ws.readyState === WebSocket.OPEN) {
@@ -204,13 +205,13 @@ function setupTerminalWebSocket(server) {
                         break;
                 }
             } catch (err) {
-                console.error('[Terminal] Message parse error:', err);
+                log.error('[Terminal] Message parse error:', err);
             }
         });
 
         // Handle WebSocket close
         ws.on('close', () => {
-            console.log(`[Terminal] WebSocket closed: ${sessionId}`);
+            log.info(`[Terminal] WebSocket closed: ${sessionId}`);
             
             if (ptyProcess && !ptyProcess.killed) {
                 ptyProcess.kill();
@@ -225,7 +226,7 @@ function setupTerminalWebSocket(server) {
 
         // Handle WebSocket error
         ws.on('error', (err) => {
-            console.error(`[Terminal] WebSocket error: ${sessionId}`, err);
+            log.error(`[Terminal] WebSocket error: ${sessionId}`, err);
             
             if (ptyProcess && !ptyProcess.killed) {
                 ptyProcess.kill();
@@ -234,7 +235,7 @@ function setupTerminalWebSocket(server) {
         });
     });
 
-    console.log('[Terminal] WebSocket server initialized at /api/terminal/ws');
+    log.info('[Terminal] WebSocket server initialized at /api/terminal/ws');
     return wss;
 }
 

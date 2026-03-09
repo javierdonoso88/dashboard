@@ -5,6 +5,7 @@
  * Supports configuration, testing, sending, and history viewing.
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const nodemailer = require('nodemailer');
@@ -71,7 +72,7 @@ router.get('/config', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error getting notification config:', error);
+    log.error('Error getting notification config:', error);
     res.status(500).json({ success: false, error: 'Failed to get notification config' });
   }
 });
@@ -133,7 +134,7 @@ router.post('/config/email', async (req, res) => {
 
     res.json({ success: true, message: 'Email configuration saved' });
   } catch (error) {
-    console.error('Error saving email config:', error);
+    log.error('Error saving email config:', error);
     res.status(500).json({ success: false, error: 'Failed to save email config' });
   }
 });
@@ -174,7 +175,7 @@ router.post('/config/telegram', async (req, res) => {
 
     res.json({ success: true, message: 'Telegram configuration saved' });
   } catch (error) {
-    console.error('Error saving Telegram config:', error);
+    log.error('Error saving Telegram config:', error);
     res.status(500).json({ success: false, error: 'Failed to save Telegram config' });
   }
 });
@@ -218,7 +219,7 @@ router.post('/test/email', notificationLimiter, async (req, res) => {
 
     res.json({ success: true, message: 'Test email sent successfully', messageId: info.messageId });
   } catch (error) {
-    console.error('Error sending test email:', error);
+    log.error('Error sending test email:', error);
     res.status(500).json({ success: false, error: `Failed to send test email: ${error.message}` });
   }
 });
@@ -259,7 +260,7 @@ router.post('/test/telegram', notificationLimiter, async (req, res) => {
 
     res.json({ success: true, message: 'Test Telegram message sent successfully' });
   } catch (error) {
-    console.error('Error sending test Telegram message:', error);
+    log.error('Error sending test Telegram message:', error);
     res.status(500).json({ success: false, error: `Failed to send test Telegram message: ${error.message}` });
   }
 });
@@ -375,7 +376,7 @@ router.post('/send', notificationLimiter, async (req, res) => {
       message: hasErrors ? 'Some notifications failed' : 'All notifications sent'
     });
   } catch (error) {
-    console.error('Error sending notification:', error);
+    log.error('Error sending notification:', error);
     res.status(500).json({ success: false, error: 'Failed to send notification' });
   }
 });
@@ -393,7 +394,7 @@ router.get('/history', async (req, res) => {
 
     res.json({ success: true, history: recent, total: history.length });
   } catch (error) {
-    console.error('Error getting notification history:', error);
+    log.error('Error getting notification history:', error);
     res.status(500).json({ success: false, error: 'Failed to get notification history' });
   }
 });
@@ -463,7 +464,7 @@ router.post('/config/error-reporting', async (req, res) => {
 
     res.json({ success: true, message: 'Error reporting configuration saved' });
   } catch (error) {
-    console.error('Error saving error reporting config:', error);
+    log.error('Error saving error reporting config:', error);
     res.status(500).json({ success: false, error: 'Failed to save error reporting config' });
   }
 });
@@ -484,7 +485,7 @@ router.post('/test/error-reporting', notificationLimiter, async (req, res) => {
         : 'No errors found. Test notification sent.'
     });
   } catch (error) {
-    console.error('Error running test scan:', error);
+    log.error('Error running test scan:', error);
     res.status(500).json({ success: false, error: 'Failed to run error scan' });
   }
 });

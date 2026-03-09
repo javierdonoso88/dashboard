@@ -5,6 +5,7 @@
  * System power actions: reboot, shutdown, reset
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');
@@ -31,7 +32,7 @@ router.post('/reset', requireAuth, requireAdmin, criticalLimiter, (req, res) => 
 
         res.json({ success: true, message: 'System configuration reset' });
     } catch (e) {
-        console.error('Reset error:', e);
+        log.error('Reset error:', e);
         res.status(500).json({ error: 'Reset failed' });
     }
 });
@@ -59,7 +60,7 @@ router.post('/factory-reset', requireAuth, requireAdmin, factoryResetLimiter, (r
 
         res.json({ success: true, message: 'Factory reset complete. Refresh to set up.' });
     } catch (e) {
-        console.error('Factory reset error:', e);
+        log.error('Factory reset error:', e);
         res.status(500).json({ error: 'Reset failed' });
     }
 });
@@ -72,7 +73,7 @@ router.post('/reboot', requireAuth, requireAdmin, criticalLimiter, (req, res) =>
     setTimeout(() => {
         execFile('sudo', ['reboot'], (error) => {
             if (error) {
-                console.error('Reboot failed:', error.message);
+                log.error('Reboot failed:', error.message);
             }
         });
     }, 1000);
@@ -86,7 +87,7 @@ router.post('/shutdown', requireAuth, requireAdmin, criticalLimiter, (req, res) 
     setTimeout(() => {
         execFile('sudo', ['shutdown', '-h', 'now'], (error) => {
             if (error) {
-                console.error('Shutdown failed:', error.message);
+                log.error('Shutdown failed:', error.message);
             }
         });
     }, 1000);

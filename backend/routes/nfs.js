@@ -3,6 +3,7 @@
  * Manage NFS shared folders through the dashboard
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');
@@ -188,7 +189,7 @@ router.get('/shares', requireAdmin, (req, res) => {
 
     res.json({ shares: result, count: result.length });
   } catch (err) {
-    console.error('List NFS shares error:', err.message);
+    log.error('List NFS shares error:', err.message);
     res.status(500).json({ error: 'Failed to read NFS configuration' });
   }
 });
@@ -253,7 +254,7 @@ router.post('/shares', requireAdmin, async (req, res) => {
       share: shareConfig,
     });
   } catch (err) {
-    console.error('Create NFS share error:', err.message);
+    log.error('Create NFS share error:', err.message);
     res.status(500).json({ error: 'Failed to create NFS share' });
   }
 });
@@ -292,7 +293,7 @@ router.delete('/shares', requireAdmin, async (req, res) => {
 
     res.json({ message: `NFS share deleted successfully` });
   } catch (err) {
-    console.error('Delete NFS share error:', err.message);
+    log.error('Delete NFS share error:', err.message);
     res.status(500).json({ error: 'Failed to delete NFS share' });
   }
 });
@@ -324,7 +325,7 @@ router.get('/status', requireAdmin, async (req, res) => {
         }
       }
     } catch (err) {
-      console.warn('Could not get exportfs status:', err.message);
+      log.warn('Could not get exportfs status:', err.message);
     }
 
     res.json({
@@ -334,7 +335,7 @@ router.get('/status', requireAdmin, async (req, res) => {
       exportsCount: currentExports.length,
     });
   } catch (err) {
-    console.error('NFS status error:', err.message);
+    log.error('NFS status error:', err.message);
     res.status(500).json({ error: 'Failed to get NFS status' });
   }
 });
@@ -353,7 +354,7 @@ router.post('/reload', requireAdmin, async (req, res) => {
       message: 'NFS exports reloaded',
     });
   } catch (err) {
-    console.error('NFS reload error:', err.message);
+    log.error('NFS reload error:', err.message);
     res.status(500).json({ error: 'Failed to reload NFS exports' });
   }
 });

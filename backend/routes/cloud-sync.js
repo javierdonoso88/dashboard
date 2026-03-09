@@ -1,3 +1,4 @@
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const { execFile, spawn } = require('child_process');
@@ -32,14 +33,14 @@ async function getApiKey() {
             const match = configXml.match(/<apikey>([^<]+)<\/apikey>/);
             if (match) {
                 syncthingApiKey = match[1];
-                console.log('Found Syncthing API key in:', configDir);
+                log.info('Found Syncthing API key in:', configDir);
                 return syncthingApiKey;
             }
         } catch (e) {
             // Try next location
         }
     }
-    console.error('Failed to find Syncthing API key in any location');
+    log.error('Failed to find Syncthing API key in any location');
     return null;
 }
 
@@ -232,7 +233,7 @@ router.get('/status', requireAuth, async (req, res) => {
                 }));
                 
             } catch (e) {
-                console.error('Syncthing API error:', e.message);
+                log.error('Syncthing API error:', e.message);
             }
         }
         

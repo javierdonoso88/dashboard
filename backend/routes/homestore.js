@@ -1,3 +1,4 @@
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const { execFile, spawn } = require('child_process');
@@ -60,7 +61,7 @@ async function saveAppConfig(appId, config) {
         const configPath = path.join(APP_CONFIGS_PATH, `${appId}.json`);
         await fs.writeFile(configPath, JSON.stringify(config, null, 2));
     } catch (e) {
-        console.error(`Failed to save config for ${appId}:`, e);
+        log.error(`Failed to save config for ${appId}:`, e);
     }
 }
 
@@ -74,7 +75,7 @@ async function ensureDirectory(dirPath) {
         await fs.mkdir(dirPath, { recursive: true });
         return true;
     } catch (e) {
-        console.error(`Failed to create directory ${dirPath}:`, e);
+        log.error(`Failed to create directory ${dirPath}:`, e);
         return false;
     }
 }
@@ -206,7 +207,7 @@ router.get('/catalog', requireAuth, async (req, res) => {
             apps
         });
     } catch (error) {
-        console.error('Error loading catalog:', error);
+        log.error('Error loading catalog:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -360,7 +361,7 @@ router.post('/install/:id', requireAuth, async (req, res) => {
         for (const [containerPath, hostPath] of Object.entries(finalVolumes)) {
             const created = await ensureDirectory(hostPath);
             if (!created) {
-                console.warn(`Could not create directory: ${hostPath}`);
+                log.warn(`Could not create directory: ${hostPath}`);
             }
         }
         
@@ -409,13 +410,13 @@ router.post('/install/:id', requireAuth, async (req, res) => {
         // Add image
         dockerArgs.push(app.image);
 
-        console.log('Installing app:', 'docker', dockerArgs.join(' '));
+        log.info('Installing app:', 'docker', dockerArgs.join(' '));
 
         // Execute
         await new Promise((resolve, reject) => {
             execFile('docker', dockerArgs, { timeout: 300000 }, (err, stdout, stderr) => {
                 if (err) {
-                    console.error('Install error:', stderr);
+                    log.error('Install error:', stderr);
                     reject(new Error(stderr || err.message));
                 } else {
                     resolve(stdout);
@@ -461,7 +462,7 @@ router.post('/install/:id', requireAuth, async (req, res) => {
         });
         
     } catch (error) {
-        console.error('Install error:', error);
+        log.error('Install error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -514,7 +515,7 @@ router.post('/uninstall/:id', requireAuth, async (req, res) => {
         });
         
     } catch (error) {
-        console.error('Uninstall error:', error);
+        log.error('Uninstall error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -687,7 +688,7 @@ router.post('/update/:id', requireAuth, async (req, res) => {
 
         dockerArgs.push(app.image);
 
-        console.log('Updating app with config:', 'docker', dockerArgs.join(' '));
+        log.info('Updating app with config:', 'docker', dockerArgs.join(' '));
 
         await new Promise((resolve, reject) => {
             execFile('docker', dockerArgs, { timeout: 300000 }, (err, stdout, stderr) => {
@@ -703,7 +704,7 @@ router.post('/update/:id', requireAuth, async (req, res) => {
         res.json({ success: true, message: `${app.name} updated successfully` });
         
     } catch (error) {
-        console.error('Update error:', error);
+        log.error('Update error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });

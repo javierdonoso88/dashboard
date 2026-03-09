@@ -5,6 +5,7 @@
  * Supports scheduling, retention policies, and restore operations.
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const path = require('path');
@@ -75,7 +76,7 @@ router.get('/jobs', (req, res) => {
     const backups = data.backups || [];
     res.json({ success: true, jobs: backups });
   } catch (err) {
-    console.error('Error listing backup jobs:', err);
+    log.error('Error listing backup jobs:', err);
     res.status(500).json({ success: false, error: 'Failed to list backup jobs' });
   }
 });
@@ -146,7 +147,7 @@ router.post('/jobs', (req, res) => {
 
     res.status(201).json({ success: true, job });
   } catch (err) {
-    console.error('Error creating backup job:', err);
+    log.error('Error creating backup job:', err);
     res.status(500).json({ success: false, error: 'Failed to create backup job' });
   }
 });
@@ -224,7 +225,7 @@ router.put('/jobs/:id', (req, res) => {
 
     res.json({ success: true, job });
   } catch (err) {
-    console.error('Error updating backup job:', err);
+    log.error('Error updating backup job:', err);
     res.status(500).json({ success: false, error: 'Failed to update backup job' });
   }
 });
@@ -258,7 +259,7 @@ router.delete('/jobs/:id', (req, res) => {
 
     res.json({ success: true, message: 'Backup job deleted' });
   } catch (err) {
-    console.error('Error deleting backup job:', err);
+    log.error('Error deleting backup job:', err);
     res.status(500).json({ success: false, error: 'Failed to delete backup job' });
   }
 });
@@ -400,7 +401,7 @@ router.post('/jobs/:id/run', (req, res) => {
     });
 
     proc.on('error', (err) => {
-      console.error(`Backup process error for job ${req.params.id}:`, err);
+      log.error(`Backup process error for job ${req.params.id}:`, err);
       runningJobs.delete(req.params.id);
 
       // Record failure in history
@@ -427,7 +428,7 @@ router.post('/jobs/:id/run', (req, res) => {
 
     res.json({ success: true, status: 'started', pid: proc.pid });
   } catch (err) {
-    console.error('Error running backup job:', err);
+    log.error('Error running backup job:', err);
     res.status(500).json({ success: false, error: 'Failed to start backup job' });
   }
 });
@@ -448,7 +449,7 @@ router.get('/jobs/:id/status', (req, res) => {
     const status = getJobStatus(req.params.id, job);
     res.json({ success: true, jobId: job.id, name: job.name, ...status });
   } catch (err) {
-    console.error('Error getting job status:', err);
+    log.error('Error getting job status:', err);
     res.status(500).json({ success: false, error: 'Failed to get job status' });
   }
 });
@@ -469,7 +470,7 @@ router.get('/jobs/:id/history', (req, res) => {
     const history = (job.history || []).slice(0, 20);
     res.json({ success: true, jobId: job.id, name: job.name, history });
   } catch (err) {
-    console.error('Error getting job history:', err);
+    log.error('Error getting job history:', err);
     res.status(500).json({ success: false, error: 'Failed to get job history' });
   }
 });
@@ -537,7 +538,7 @@ router.post('/jobs/:id/restore', (req, res) => {
     });
 
     proc.on('error', (err) => {
-      console.error(`Restore error for job ${req.params.id}:`, err);
+      log.error(`Restore error for job ${req.params.id}:`, err);
     });
 
     logSecurityEvent('backup_restore_started', {
@@ -554,7 +555,7 @@ router.post('/jobs/:id/restore', (req, res) => {
       message: `Restoring ${sanitizedArchive} to ${job.source}`
     });
   } catch (err) {
-    console.error('Error restoring backup:', err);
+    log.error('Error restoring backup:', err);
     res.status(500).json({ success: false, error: 'Failed to start restore' });
   }
 });
@@ -581,14 +582,14 @@ function applyRetention(job) {
         const filePath = path.join(job.destination, file);
         try {
           fs.unlinkSync(filePath);
-          console.log(`Retention: removed old backup ${file}`);
+          log.info(`Retention: removed old backup ${file}`);
         } catch (unlinkErr) {
-          console.error(`Retention: failed to remove ${file}:`, unlinkErr);
+          log.error(`Retention: failed to remove ${file}:`, unlinkErr);
         }
       });
     }
   } catch (err) {
-    console.error('Error applying retention policy:', err);
+    log.error('Error applying retention policy:', err);
   }
 }
 

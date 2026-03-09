@@ -5,6 +5,7 @@
  * SnapRAID + MergerFS storage pool management
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');
@@ -113,7 +114,7 @@ router.get('/pool/status', requireAuth, async (req, res) => {
                 }
             }
         } catch (e) {
-            console.log('MergerFS status check failed:', e.message);
+            log.info('MergerFS status check failed:', e.message);
         }
 
         // Check systemd mount unit status
@@ -260,7 +261,7 @@ router.get('/pool/status', requireAuth, async (req, res) => {
             lastSync: status.snapraid.lastSync
         });
     } catch (e) {
-        console.error('Pool status error:', e);
+        log.error('Pool status error:', e);
         res.status(500).json({ error: 'Failed to get pool status' });
     }
 });
@@ -578,7 +579,7 @@ exclude .fseventsd
         });
 
     } catch (e) {
-        console.error('Storage configuration error:', e);
+        log.error('Storage configuration error:', e);
         // Provide clearer error message for common sudo issues
         let userMessage = 'Failed to configure storage';
         if (e.message && e.message.includes('unable to change to root gid')) {
@@ -709,7 +710,7 @@ router.post('/snapraid/scrub', requireAuth, async (req, res) => {
         logSecurityEvent('SNAPRAID_SCRUB', {}, req.ip);
         res.json({ success: true, message: 'SnapRAID scrub completed' });
     } catch (e) {
-        console.error('SnapRAID scrub error:', e);
+        log.error('SnapRAID scrub error:', e);
         res.status(500).json({ error: `SnapRAID scrub failed: ${e.message}` });
     }
 });
@@ -742,7 +743,7 @@ router.get('/disks/detect', requireAuth, async (req, res) => {
             const parsed = JSON.parse(lsblkJson);
             devices = parsed.blockdevices || [];
         } catch (e) {
-            console.error('Failed to parse lsblk:', e);
+            log.error('Failed to parse lsblk:', e);
         }
 
         const data = getData();
@@ -821,7 +822,7 @@ router.get('/disks/detect', requireAuth, async (req, res) => {
 
         res.json({ configured, unconfigured });
     } catch (e) {
-        console.error('Disk detection error:', e);
+        log.error('Disk detection error:', e);
         res.status(500).json({ error: 'Failed to detect disks' });
     }
 });
@@ -960,7 +961,7 @@ router.get('/cache/status', requireAuth, async (req, res) => {
             }
         });
     } catch (e) {
-        console.error('Cache status error:', e);
+        log.error('Cache status error:', e);
         res.status(500).json({ error: 'Failed to get cache status' });
     }
 });
@@ -1027,7 +1028,7 @@ router.get('/file-location', requireAuth, async (req, res) => {
             diskType
         });
     } catch (e) {
-        console.error('File location error:', e);
+        log.error('File location error:', e);
         res.status(500).json({ error: 'Failed to get file location' });
     }
 });
@@ -1073,7 +1074,7 @@ router.post('/file-locations', requireAuth, async (req, res) => {
 
         res.json({ locations });
     } catch (e) {
-        console.error('Batch file locations error:', e);
+        log.error('Batch file locations error:', e);
         res.status(500).json({ error: 'Failed to get file locations' });
     }
 });
@@ -1191,7 +1192,7 @@ router.post('/disks/add-to-pool', requireAuth, async (req, res) => {
                 }
             }
         } catch (e) {
-            console.log('lsblk check failed, continuing:', e.message);
+            log.info('lsblk check failed, continuing:', e.message);
         }
         
         // Determine partition path (for NVMe vs SATA)
@@ -1233,19 +1234,19 @@ router.post('/disks/add-to-pool', requireAuth, async (req, res) => {
             const mountAllRaw = execFileSync('mount', [], { encoding: 'utf8' });
             const mountCheck = mountAllRaw.split('\n').filter(l => l.includes(`/dev/${safeDiskId}`)).join('\n');
             if (mountCheck.trim()) {
-                console.log(`Unmounting all partitions of /dev/${safeDiskId}...`);
+                log.info(`Unmounting all partitions of /dev/${safeDiskId}...`);
                 const mountLines = mountCheck.trim().split('\n');
                 for (const line of mountLines) {
                     const mountedDev = line.split(' ')[0];
                     if (mountedDev) {
-                        console.log(`  Unmounting ${mountedDev}...`);
+                        log.info(`  Unmounting ${mountedDev}...`);
                         try {
                             execFileSync('sudo', ['umount', mountedDev], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
                         } catch (e) {
                             try {
                                 execFileSync('sudo', ['umount', '-l', mountedDev], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
                             } catch (e2) {
-                                console.log(`  Failed to unmount ${mountedDev}: ${e2.message}`);
+                                log.info(`  Failed to unmount ${mountedDev}: ${e2.message}`);
                             }
                         }
                     }
@@ -1254,13 +1255,13 @@ router.post('/disks/add-to-pool', requireAuth, async (req, res) => {
                 execFileSync('sleep', ['1'], { encoding: 'utf8' });
             }
         } catch (e) {
-            console.log('Unmount check/attempt:', e.message);
+            log.info('Unmount check/attempt:', e.message);
         }
         
         // Step 2: Create partition if needed (for new disks or format requested)
         if (!hasPartition || format) {
             try {
-                console.log(`Creating partition on ${devicePath}...`);
+                log.info(`Creating partition on ${devicePath}...`);
                 execFileSync('sudo', ['parted', '-s', devicePath, 'mklabel', 'gpt'], { encoding: 'utf8', timeout: 30000 });
                 execFileSync('sudo', ['parted', '-s', devicePath, 'mkpart', 'primary', 'ext4', '0%', '100%'], { encoding: 'utf8', timeout: 30000 });
                 execFileSync('sync', [], { encoding: 'utf8' });
@@ -1276,7 +1277,7 @@ router.post('/disks/add-to-pool', requireAuth, async (req, res) => {
                     });
                 }
                 // Partition might already exist, continue
-                console.log('Partition creation skipped (may already exist):', e.message);
+                log.info('Partition creation skipped (may already exist):', e.message);
             }
         }
         
@@ -1284,7 +1285,7 @@ router.post('/disks/add-to-pool', requireAuth, async (req, res) => {
         if (format) {
             const label = `${role}_${safeDiskId}`.substring(0, 16);
             try {
-                console.log(`Formatting ${partitionPath} as ${filesystem}...`);
+                log.info(`Formatting ${partitionPath} as ${filesystem}...`);
                 if (filesystem === 'xfs') {
                     execFileSync('sudo', ['mkfs.xfs', '-f', '-L', label, partitionPath], { encoding: 'utf8', timeout: 300000 });
                 } else {
@@ -1357,7 +1358,7 @@ router.post('/disks/add-to-pool', requireAuth, async (req, res) => {
                 execFileSync('sudo', ['tee', '-a', '/etc/fstab'], { input: fstabAppend, encoding: 'utf8', stdio: ['pipe', 'ignore', 'pipe'] });
             }
         } catch (e) {
-            console.error('fstab update failed:', e);
+            log.error('fstab update failed:', e);
             // Continue anyway, disk is mounted
         }
 
@@ -1389,7 +1390,7 @@ router.post('/disks/add-to-pool', requireAuth, async (req, res) => {
             uuid
         });
     } catch (e) {
-        console.error('Add to pool error:', e);
+        log.error('Add to pool error:', e);
         res.status(500).json({ error: `Failed to add disk: ${e.message}` });
     }
 });
@@ -1484,7 +1485,7 @@ router.post('/disks/remove-from-pool', requireAuth, async (req, res) => {
             remainingDisks: sourcesList.length
         });
     } catch (e) {
-        console.error('Remove from pool error:', e);
+        log.error('Remove from pool error:', e);
         res.status(500).json({ error: `Failed to remove disk: ${e.message}` });
     }
 });
@@ -1523,7 +1524,7 @@ router.post('/disks/mount-standalone', requireAuth, async (req, res) => {
             execFileSync('sudo', ['parted', '-s', devicePath, 'mkpart', 'primary', 'ext4', '0%', '100%'], { encoding: 'utf8' });
             execFileSync('sleep', ['2'], { encoding: 'utf8' });
         } catch (e) {
-            console.log('Partition exists or creation skipped');
+            log.info('Partition exists or creation skipped');
         }
 
         // Format if requested
@@ -1564,7 +1565,7 @@ router.post('/disks/mount-standalone', requireAuth, async (req, res) => {
                 execFileSync('sudo', ['tee', '-a', '/etc/fstab'], { input: fstabAppend, encoding: 'utf8', stdio: ['pipe', 'ignore', 'pipe'] });
             }
         } catch (e) {
-            console.error('fstab update failed:', e);
+            log.error('fstab update failed:', e);
         }
 
         // Save to config as standalone volume
@@ -1588,7 +1589,7 @@ router.post('/disks/mount-standalone', requireAuth, async (req, res) => {
             uuid
         });
     } catch (e) {
-        console.error('Standalone mount error:', e);
+        log.error('Standalone mount error:', e);
         res.status(500).json({ error: `Failed: ${e.message}` });
     }
 });
@@ -1723,7 +1724,7 @@ async function addDiskToMergerFS(mountPoint, role) {
             try {
                 execFileSync('sudo', ['umount', POOL_MOUNT], { encoding: 'utf8' });
             } catch (e) {
-                console.error('Failed to unmount MergerFS:', e.message);
+                log.error('Failed to unmount MergerFS:', e.message);
                 // Try lazy unmount
                 try {
                     execFileSync('sudo', ['umount', '-l', POOL_MOUNT], { encoding: 'utf8' });
@@ -1750,7 +1751,7 @@ async function addDiskToMergerFS(mountPoint, role) {
 
         return true;
     } catch (e) {
-        console.error('MergerFS add disk failed:', e);
+        log.error('MergerFS add disk failed:', e);
         throw e;
     }
 }
@@ -1760,9 +1761,9 @@ function updateMergerFSFstab(sources, policy = 'mfs') {
     try {
         // Now using systemd mount unit for better boot ordering
         updateMergerFSSystemdUnit(sources, policy);
-        console.log('Updated MergerFS systemd mount unit');
+        log.info('Updated MergerFS systemd mount unit');
     } catch (e) {
-        console.error('Failed to update MergerFS systemd unit:', e);
+        log.error('Failed to update MergerFS systemd unit:', e);
         // Don't throw - the mount worked, persistence is just for reboot
     }
 }
@@ -1803,7 +1804,7 @@ router.post('/config', (req, res) => {
         logSecurityEvent('STORAGE_CONFIG', { disks: validatedConfig.length }, req.ip);
         res.json({ success: true, message: 'Storage configuration saved' });
     } catch (e) {
-        console.error('Storage config error:', e);
+        log.error('Storage config error:', e);
         res.status(500).json({ error: 'Failed to save storage configuration' });
     }
 });
@@ -1873,7 +1874,7 @@ WantedBy=multi-user.target
         execFileSync('sudo', ['systemctl', 'daemon-reload'], { encoding: 'utf8', timeout: 10000 });
         execFileSync('sudo', ['systemctl', 'enable', mountUnitName], { encoding: 'utf8', timeout: 10000 });
         
-        console.log('Created systemd mount unit:', mountUnitPath);
+        log.info('Created systemd mount unit:', mountUnitPath);
         
         // Also remove any MergerFS entry from fstab to avoid conflicts
         try {
@@ -1883,7 +1884,7 @@ WantedBy=multi-user.target
             fs.writeFileSync(tempFstabClean, fstabFiltered, 'utf8');
             execFileSync('sudo', ['cp', tempFstabClean, '/etc/fstab'], { encoding: 'utf8', timeout: 10000 });
             try { fs.unlinkSync(tempFstabClean); } catch (e2) {}
-            console.log('Removed MergerFS fstab entry (now using systemd)');
+            log.info('Removed MergerFS fstab entry (now using systemd)');
         } catch (e) {
             // Ignore - fstab entry might not exist
         }
@@ -2028,7 +2029,7 @@ router.get('/smart/:device', requireAuth, async (req, res) => {
         });
         
     } catch (error) {
-        console.error('SMART data error:', error);
+        log.error('SMART data error:', error);
         res.status(500).json({ error: 'Failed to get SMART data: ' + error.message });
     }
 });
@@ -2098,7 +2099,7 @@ router.post('/smart/:device/test', requireAuth, async (req, res) => {
         });
         
     } catch (error) {
-        console.error('SMART test error:', error);
+        log.error('SMART test error:', error);
         res.status(500).json({ error: 'Failed to start SMART test: ' + error.message });
     }
 });
@@ -2230,7 +2231,7 @@ router.post('/badblocks/:device', requireAuth, async (req, res) => {
             
             // Send Telegram notification
             notifyBadblocksComplete(device, session.result, session.badBlocks.length, session.endTime - session.startTime)
-                .catch(e => console.error('Badblocks notification error:', e.message));
+                .catch(e => log.error('Badblocks notification error:', e.message));
         });
         
         bbProcess.on('error', (err) => {
@@ -2249,7 +2250,7 @@ router.post('/badblocks/:device', requireAuth, async (req, res) => {
         });
         
     } catch (error) {
-        console.error('Badblocks start error:', error);
+        log.error('Badblocks start error:', error);
         res.status(500).json({ error: 'Failed to start badblocks: ' + error.message });
     }
 });
@@ -2351,7 +2352,7 @@ router.get('/smart/:device/status', requireAuth, async (req, res) => {
         });
         
     } catch (error) {
-        console.error('SMART status error:', error);
+        log.error('SMART status error:', error);
         res.status(500).json({ error: 'Failed to get SMART status: ' + error.message });
     }
 });
@@ -2598,7 +2599,7 @@ router.get('/disks/health', requireAuth, async (req, res) => {
             } catch (e) {
                 // SMART not available or command failed
                 diskInfo.health.smartAvailable = false;
-                console.log(`SMART unavailable for ${diskId}:`, e.message);
+                log.info(`SMART unavailable for ${diskId}:`, e.message);
             }
             
             // Calculate overall health status
@@ -2618,7 +2619,7 @@ router.get('/disks/health', requireAuth, async (req, res) => {
         res.json({ disks, summary });
         
     } catch (error) {
-        console.error('Disk health error:', error);
+        log.error('Disk health error:', error);
         res.status(500).json({ error: 'Failed to get disk health: ' + error.message });
     }
 });
@@ -2683,7 +2684,7 @@ router.get("/disks/iostats", requireAuth, async (req, res) => {
         
         res.json({ disks: result });
     } catch (e) {
-        console.error("I/O stats error:", e);
+        log.error("I/O stats error:", e);
         res.status(500).json({ error: "Failed to get I/O statistics" });
     }
 });
@@ -2706,7 +2707,7 @@ router.post("/cache/mover/trigger", requireAuth, async (req, res) => {
             message: 'Cache mover ejecutado correctamente' 
         });
     } catch (e) {
-        console.error('Cache mover trigger error:', e);
+        log.error('Cache mover trigger error:', e);
         res.status(500).json({ 
             error: 'Error al ejecutar cache mover',
             details: e.message 
@@ -2881,7 +2882,7 @@ router.get('/cache/status', requireAuth, async (req, res) => {
             }
         });
     } catch (e) {
-        console.error('Cache status error:', e);
+        log.error('Cache status error:', e);
         res.status(500).json({ error: 'Failed to get cache status' });
     }
 });

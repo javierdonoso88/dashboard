@@ -5,6 +5,7 @@
  * Provides status monitoring, configuration, event history, and self-test.
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const { execFile } = require('child_process');
@@ -154,7 +155,7 @@ router.get('/status', async (req, res) => {
       message: 'No UPS software detected. Install apcupsd or nut.'
     });
   } catch (err) {
-    console.error('Error getting UPS status:', err);
+    log.error('Error getting UPS status:', err);
     res.status(500).json({ success: false, error: 'Failed to get UPS status' });
   }
 });
@@ -174,7 +175,7 @@ router.get('/config', (req, res) => {
     };
     res.json({ success: true, config: upsConfig });
   } catch (err) {
-    console.error('Error getting UPS config:', err);
+    log.error('Error getting UPS config:', err);
     res.status(500).json({ success: false, error: 'Failed to get UPS config' });
   }
 });
@@ -223,7 +224,7 @@ router.post('/config', (req, res) => {
 
     res.json({ success: true, config: data.ups.config });
   } catch (err) {
-    console.error('Error saving UPS config:', err);
+    log.error('Error saving UPS config:', err);
     res.status(500).json({ success: false, error: 'Failed to save UPS config' });
   }
 });
@@ -238,7 +239,7 @@ router.get('/history', (req, res) => {
     const history = (data.ups && data.ups.history) || [];
     res.json({ success: true, history });
   } catch (err) {
-    console.error('Error getting UPS history:', err);
+    log.error('Error getting UPS history:', err);
     res.status(500).json({ success: false, error: 'Failed to get UPS event history' });
   }
 });
@@ -256,7 +257,7 @@ router.post('/test', async (req, res) => {
       // Use apcupsd self-test
       execFile('apctest', [], { timeout: 30000 }, (err, stdout, stderr) => {
         if (err) {
-          console.error('apctest error:', err);
+          log.error('apctest error:', err);
           return res.status(500).json({
             success: false,
             driver: 'apcupsd',
@@ -288,7 +289,7 @@ router.post('/test', async (req, res) => {
     if (nutData && Object.keys(nutData).length > 0) {
       execFile('upscmd', ['ups@localhost', 'test.battery.start'], { timeout: 30000 }, (err, stdout, stderr) => {
         if (err) {
-          console.error('upscmd error:', err);
+          log.error('upscmd error:', err);
           return res.status(500).json({
             success: false,
             driver: 'nut',
@@ -322,7 +323,7 @@ router.post('/test', async (req, res) => {
       message: 'No UPS software detected. Install apcupsd or nut.'
     });
   } catch (err) {
-    console.error('Error running UPS self-test:', err);
+    log.error('Error running UPS self-test:', err);
     res.status(500).json({ success: false, error: 'Failed to run UPS self-test' });
   }
 });
@@ -354,7 +355,7 @@ function recordUpsEvent(type, details) {
 
     saveData(data);
   } catch (err) {
-    console.error('Error recording UPS event:', err);
+    log.error('Error recording UPS event:', err);
   }
 }
 

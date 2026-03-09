@@ -4,6 +4,7 @@
  * Features: device management, versioned backups with hardlinks, browse/restore, alerts
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');
@@ -83,7 +84,7 @@ router.post('/agent/register', (req, res) => {
   data.activeBackup.pendingAgents.push(agent);
   saveData(data);
 
-  console.log(`[Active Backup] New agent registered: ${hostname} (${ip || req.ip})`);
+  log.info(`[Active Backup] New agent registered: ${hostname} (${ip || req.ip})`);
 
   res.json({
     success: true,
@@ -310,7 +311,7 @@ async function notifyBackupFailure(device, error) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: notifConfig.telegram.chatId, text: message }),
       });
-    } catch(e) { console.error('Telegram notify error:', e.message); }
+    } catch(e) { log.error('Telegram notify error:', e.message); }
   }
 
   // Email notification
@@ -329,7 +330,7 @@ async function notifyBackupFailure(device, error) {
         subject: `⚠️ HomePiNAS: Backup failed - ${device.name}`,
         text: message,
       });
-    } catch(e) { console.error('Email notify error:', e.message); }
+    } catch(e) { log.error('Email notify error:', e.message); }
   }
 }
 
@@ -350,7 +351,7 @@ async function ensureSambaUser(username, password) {
       await execFileAsync('sudo', ['smbpasswd', '-e', username]);
     }
   } catch (e) {
-    console.error('Samba user setup warning:', e.message);
+    log.error('Samba user setup warning:', e.message);
   }
 }
 
@@ -367,7 +368,7 @@ async function createImageBackupShare(device, username) {
     await execFileAsync('sudo', ['chown', `${sambaUser}:sambashare`, sharePath]);
     await execFileAsync('sudo', ['chmod', '2775', sharePath]);
   } catch (e) {
-    console.error('Permission setup warning:', e.message);
+    log.error('Permission setup warning:', e.message);
   }
 
   // Add share to smb.conf with the actual user
@@ -388,7 +389,7 @@ async function createImageBackupShare(device, username) {
       await execFileAsync('sudo', ['systemctl', 'reload', 'smbd']);
     }
   } catch(e) {
-    console.error('Samba share creation error:', e.message);
+    log.error('Samba share creation error:', e.message);
     throw e;
   }
 }
@@ -668,7 +669,7 @@ router.post('/devices', async (req, res) => {
           instructions: getImageBackupInstructions(device, uncPath, nasHostname),
         };
       } catch (sambaErr) {
-        console.error('Failed to create Samba share for image backup:', sambaErr.message);
+        log.error('Failed to create Samba share for image backup:', sambaErr.message);
       }
     }
 
@@ -691,7 +692,7 @@ router.post('/devices', async (req, res) => {
   saveData(data);
     res.json(response);
   } catch (err) {
-    console.error('Add device error:', err);
+    log.error('Add device error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -890,7 +891,7 @@ async function runBackup(device) {
     logSecurityEvent('active_backup_success', 'system', { device: device.name, version: vNum, duration });
 
   } catch (err) {
-    console.error(`Backup failed for ${device.name}:`, err.message);
+    log.error(`Backup failed for ${device.name}:`, err.message);
 
     // Clean up failed version directory
     if (fs.existsSync(vDir)) {
@@ -1015,7 +1016,7 @@ router.get('/devices/:id/browse', (req, res) => {
       }),
     });
   } catch(err) {
-    console.error("Browse error:", err.message, "devDir:", typeof devDir !== "undefined" ? devDir : "N/A"); res.status(500).json({ error: err.message });
+    log.error("Browse error:", err.message, "devDir:", typeof devDir !== "undefined" ? devDir : "N/A"); res.status(500).json({ error: err.message });
   }
 });
 
@@ -1148,7 +1149,7 @@ setInterval(() => {
     if (!parsed) continue;
 
     if (now.getHours() === parsed.hour && now.getMinutes() === parsed.minute) {
-      console.log(`[Active Backup] Starting scheduled backup for ${device.name}`);
+      log.info(`[Active Backup] Starting scheduled backup for ${device.name}`);
       runBackup(device);
     }
   }
@@ -1209,10 +1210,10 @@ router.post('/recovery/build', async (req, res) => {
   proc.on('close', (code) => {
     if (code === 0) {
       logSecurityEvent('recovery_iso_built', 'system', { success: true });
-      console.log('[Active Backup] Recovery ISO built successfully');
+      log.info('[Active Backup] Recovery ISO built successfully');
     } else {
       logSecurityEvent('recovery_iso_build_failed', 'system', { code, output: output.slice(-500) });
-      console.error('[Active Backup] Recovery ISO build failed:', output.slice(-500));
+      log.error('[Active Backup] Recovery ISO build failed:', output.slice(-500));
     }
   });
 });
@@ -1349,7 +1350,7 @@ router.post('/pending/:id/approve', async (req, res) => {
 
     res.json({ success: true, device });
   } catch (err) {
-    console.error('Approve agent error:', err);
+    log.error('Approve agent error:', err);
     res.status(500).json({ error: err.message });
   }
 });

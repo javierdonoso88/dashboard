@@ -5,6 +5,7 @@
  * System update from GitHub repository
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const { execFileSync } = require('child_process');
@@ -47,7 +48,7 @@ router.get('/check', requireAuth, async (req, res) => {
                     localChangesFiles = statusOutput.split('\n').slice(0, 5).map(l => l.trim());
                 }
             } catch (e) {
-                console.error('Git status check failed:', e.message);
+                log.error('Git status check failed:', e.message);
             }
 
             // Ensure git safe directory is set (sudo changes HOME)
@@ -101,7 +102,7 @@ router.get('/check', requireAuth, async (req, res) => {
             }
         } catch (e) {
             // Git fetch failed, maybe no internet or permissions
-            console.error('Update check failed:', e.message);
+            log.error('Update check failed:', e.message);
             changelog = `Error checking updates: ${e.message}`;
         }
 
@@ -115,7 +116,7 @@ router.get('/check', requireAuth, async (req, res) => {
             installDir: INSTALL_DIR
         });
     } catch (e) {
-        console.error('Update check error:', e);
+        log.error('Update check error:', e);
         res.status(500).json({ error: 'Failed to check for updates' });
     }
 });
@@ -156,10 +157,10 @@ router.post('/apply', requireAuth, criticalLimiter, async (req, res) => {
     // Perform update in background after response is sent
     setTimeout(async () => {
         try {
-            console.log('[UPDATE] Starting system update...');
+            log.info('[UPDATE] Starting system update...');
 
             // 1. Pull latest changes - using execFileSync where possible
-            console.log('[UPDATE] Pulling latest changes from GitHub...');
+            log.info('[UPDATE] Pulling latest changes from GitHub...');
             execFileSync('sudo', ['git', 'fetch', 'origin'], {
                 cwd: INSTALL_DIR,
                 encoding: 'utf8',
@@ -179,7 +180,7 @@ router.post('/apply', requireAuth, criticalLimiter, async (req, res) => {
             });
 
             // 2. Install/update dependencies
-            console.log('[UPDATE] Installing dependencies...');
+            log.info('[UPDATE] Installing dependencies...');
             execFileSync('sudo', ['npm', 'install', '--production'], {
                 cwd: INSTALL_DIR,
                 encoding: 'utf8',
@@ -187,20 +188,20 @@ router.post('/apply', requireAuth, criticalLimiter, async (req, res) => {
             });
 
             // 3. Restart service
-            console.log('[UPDATE] Restarting HomePiNAS service...');
+            log.info('[UPDATE] Restarting HomePiNAS service...');
             const { execFile } = require('child_process');
             execFile('sudo', ['systemctl', 'restart', 'homepinas'], (error) => {
                 if (error) {
-                    console.error('[UPDATE] Restart failed:', error.message);
+                    log.error('[UPDATE] Restart failed:', error.message);
                 } else {
-                    console.log('[UPDATE] Service restarted successfully');
+                    log.info('[UPDATE] Service restarted successfully');
                 }
             });
 
             logSecurityEvent('UPDATE_COMPLETED', {}, '');
 
         } catch (e) {
-            console.error('[UPDATE] Update failed:', e.message);
+            log.error('[UPDATE] Update failed:', e.message);
             logSecurityEvent('UPDATE_FAILED', { error: e.message }, '');
         }
     }, 500);
@@ -296,7 +297,7 @@ router.get('/check-os', requireAuth, async (req, res) => {
             packages: packages.slice(0, 50)
         });
     } catch (e) {
-        console.error('OS update check error:', e.message);
+        log.error('OS update check error:', e.message);
         res.status(500).json({ success: false, error: 'Failed to check OS updates: ' + e.message });
     }
 });
@@ -314,15 +315,15 @@ router.post('/apply-os', requireAuth, criticalLimiter, async (req, res) => {
     // Run upgrade in background
     setTimeout(async () => {
         try {
-            console.log('[OS-UPDATE] Starting apt upgrade...');
+            log.info('[OS-UPDATE] Starting apt upgrade...');
             await execFileAsync('sudo', ['apt-get', 'upgrade', '-y', '-qq'], {
                 timeout: 600000,  // 10 min timeout
                 encoding: 'utf8'
             });
-            console.log('[OS-UPDATE] Upgrade completed successfully');
+            log.info('[OS-UPDATE] Upgrade completed successfully');
             logSecurityEvent('OS_UPDATE_COMPLETED', {}, '');
         } catch (e) {
-            console.error('[OS-UPDATE] Upgrade failed:', e.message);
+            log.error('[OS-UPDATE] Upgrade failed:', e.message);
             logSecurityEvent('OS_UPDATE_FAILED', { error: e.message }, '');
         }
     }, 500);

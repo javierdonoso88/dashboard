@@ -5,6 +5,7 @@
  * User setup, login, logout
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
@@ -51,7 +52,7 @@ function validateTOTP(secret, token) {
 async function createSambaUser(username, password) {
     const safeUsername = sanitizeUsername(username);
     if (!safeUsername) {
-        console.error('Invalid username format for Samba user');
+        log.error('Invalid username format for Samba user');
         return false;
     }
 
@@ -101,10 +102,10 @@ async function createSambaUser(username, password) {
         execFileSync('sudo', ['systemctl', 'restart', 'smbd'], { encoding: 'utf8' });
         execFileSync('sudo', ['systemctl', 'restart', 'nmbd'], { encoding: 'utf8' });
 
-        console.log(`Samba user ${safeUsername} created successfully`);
+        log.info(`Samba user ${safeUsername} created successfully`);
         return true;
     } catch (e) {
-        console.error('Failed to create Samba user:', e.message);
+        log.error('Failed to create Samba user:', e.message);
         return false;
     }
 }
@@ -172,7 +173,7 @@ router.post('/setup', authLimiter, async (req, res) => {
             sambaEnabled: sambaCreated
         });
     } catch (e) {
-        console.error('Setup error:', e);
+        log.error('Setup error:', e);
         res.status(500).json({ success: false, message: 'Setup failed' });
     }
 });
@@ -254,7 +255,7 @@ router.post('/login', authLimiter, async (req, res) => {
             res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
     } catch (e) {
-        console.error('Login error:', e);
+        log.error('Login error:', e);
         res.status(500).json({ success: false, message: 'Login failed' });
     }
 });
@@ -315,7 +316,7 @@ router.post('/login/2fa', authLimiter, async (req, res) => {
             user: { username: data.user.username }
         });
     } catch (e) {
-        console.error('2FA verification error:', e);
+        log.error('2FA verification error:', e);
         res.status(500).json({ success: false, message: '2FA verification failed' });
     }
 });
@@ -390,7 +391,7 @@ router.post('/setup/reset', resetLimiter, (req, res) => {
         
         res.json({ success: true, message: 'System configuration reset. Please reload the page.' });
     } catch (e) {
-        console.error('Emergency reset error:', e);
+        log.error('Emergency reset error:', e);
         res.status(500).json({ error: 'Reset failed: ' + e.message });
     }
 });

@@ -8,6 +8,7 @@
  * - Validation of commands
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');
@@ -47,7 +48,7 @@ function loadShortcuts() {
             return data.shortcuts || [];
         }
     } catch (e) {
-        console.error('Error loading shortcuts:', e.message);
+        log.error('Error loading shortcuts:', e.message);
     }
     return [];
 }
@@ -62,7 +63,7 @@ function saveShortcuts(shortcuts) {
         fs.writeFileSync(SHORTCUTS_FILE, JSON.stringify({ shortcuts }, null, 2));
         return true;
     } catch (e) {
-        console.error('Error saving shortcuts:', e.message);
+        log.error('Error saving shortcuts:', e.message);
         return false;
     }
 }

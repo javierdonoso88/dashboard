@@ -3,6 +3,7 @@
  * Web file manager for browsing/managing files on NAS storage at /mnt/storage
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');
@@ -151,7 +152,7 @@ if (fs.existsSync('/mnt/storage')) {
     fs.unlinkSync(testFile);
     tmpUploadDir = storageTmpDir;
   } catch (e) {
-    console.warn('[Upload] Storage not writable, using system tmp:', e.message);
+    log.warn('[Upload] Storage not writable, using system tmp:', e.message);
     tmpUploadDir = systemTmpDir;
   }
 }
@@ -161,7 +162,7 @@ if (!fs.existsSync(tmpUploadDir)) {
   try {
     fs.mkdirSync(tmpUploadDir, { recursive: true });
   } catch (e) {
-    console.error('[Upload] Cannot create temp dir:', e.message);
+    log.error('[Upload] Cannot create temp dir:', e.message);
   }
 }
 
@@ -179,12 +180,12 @@ function cleanupOldUploads() {
         const stat = fs.statSync(filePath);
         if (now - stat.mtimeMs > maxAge) {
           fs.unlinkSync(filePath);
-          console.log(`[Cleanup] Removed abandoned upload: ${file}`);
+          log.info(`[Cleanup] Removed abandoned upload: ${file}`);
         }
       } catch (e) {}
     }
   } catch (e) {
-    console.error('[Cleanup] Error:', e.message);
+    log.error('[Cleanup] Error:', e.message);
   }
 }
 
@@ -242,7 +243,7 @@ router.get('/user-home', requirePermission('read'), (req, res) => {
       hasRestrictions: allowedPaths.length > 0,
     });
   } catch (err) {
-    console.error('Get user home error:', err.message);
+    log.error('Get user home error:', err.message);
     res.json({ homePath: '', allowedPaths: [], hasRestrictions: false });
   }
 });
@@ -305,7 +306,7 @@ router.get('/list', requirePermission('read'), (req, res) => {
       count: items.length,
     });
   } catch (err) {
-    console.error('File list error:', err.message);
+    log.error('File list error:', err.message);
     res.status(500).json({ error: 'Failed to list directory' });
   }
 });
@@ -337,7 +338,7 @@ router.get('/download', requirePermission('read'), (req, res) => {
     logSecurityEvent('file_download', req.user.username, { path: inputPath });
     res.download(filePath);
   } catch (err) {
-    console.error('File download error:', err.message);
+    log.error('File download error:', err.message);
     res.status(500).json({ error: 'Failed to download file' });
   }
 });
@@ -355,7 +356,7 @@ router.post('/upload', requirePermission('write'), (req, res) => {
       if (err.code === 'LIMIT_FILE_SIZE') {
         return res.status(413).json({ error: 'File too large (max 2GB)' });
       }
-      console.error('Upload error:', err.message);
+      log.error('Upload error:', err.message);
       return res.status(400).json({ error: err.message || 'Upload failed' });
     }
 
@@ -399,7 +400,7 @@ router.post('/upload', requirePermission('write'), (req, res) => {
           fs.unlinkSync(f.path);
           movedFiles.push({ name: f.originalname, size: f.size, path: path.relative(STORAGE_BASE, destPath) });
         } catch (copyErr) {
-          console.error('Move file error:', copyErr.message);
+          log.error('Move file error:', copyErr.message);
         }
       }
     }
@@ -441,7 +442,7 @@ router.post('/mkdir', requirePermission('write'), (req, res) => {
 
     res.json({ message: 'Directory created', path: inputPath });
   } catch (err) {
-    console.error('Mkdir error:', err.message);
+    log.error('Mkdir error:', err.message);
     res.status(500).json({ error: 'Failed to create directory' });
   }
 });
@@ -478,7 +479,7 @@ router.post('/rename', requirePermission('write'), (req, res) => {
 
     res.json({ message: 'Renamed successfully', from: oldInput, to: newInput });
   } catch (err) {
-    console.error('Rename error:', err.message);
+    log.error('Rename error:', err.message);
     res.status(500).json({ error: 'Failed to rename' });
   }
 });
@@ -517,7 +518,7 @@ router.post('/delete', requirePermission('delete'), (req, res) => {
 
     res.json({ message: 'Deleted successfully', path: inputPath });
   } catch (err) {
-    console.error('Delete error:', err.message);
+    log.error('Delete error:', err.message);
     res.status(500).json({ error: 'Failed to delete' });
   }
 });
@@ -551,7 +552,7 @@ router.post('/move', requirePermission('write'), (req, res) => {
 
     res.json({ message: 'Moved successfully', from: srcInput, to: destInput });
   } catch (err) {
-    console.error('Move error:', err.message);
+    log.error('Move error:', err.message);
     res.status(500).json({ error: 'Failed to move' });
   }
 });
@@ -585,7 +586,7 @@ router.post('/copy', requirePermission('write'), (req, res) => {
 
     res.json({ message: 'Copied successfully', from: srcInput, to: destInput });
   } catch (err) {
-    console.error('Copy error:', err.message);
+    log.error('Copy error:', err.message);
     res.status(500).json({ error: 'Failed to copy' });
   }
 });
@@ -627,7 +628,7 @@ router.get('/info', requirePermission('read'), (req, res) => {
       isSymlink: fs.lstatSync(filePath).isSymbolicLink(),
     });
   } catch (err) {
-    console.error('File info error:', err.message);
+    log.error('File info error:', err.message);
     res.status(500).json({ error: 'Failed to get file info' });
   }
 });
@@ -665,7 +666,7 @@ router.get('/search', requirePermission('read'), (req, res) => {
       truncated: results.length >= MAX_RESULTS,
     });
   } catch (err) {
-    console.error('Search error:', err.message);
+    log.error('Search error:', err.message);
     res.status(500).json({ error: 'Search failed' });
   }
 });

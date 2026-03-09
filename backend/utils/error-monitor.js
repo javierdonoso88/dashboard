@@ -5,6 +5,7 @@
  * notifications via email/telegram when new errors are found.
  */
 
+const log = require('./logger');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
@@ -93,7 +94,7 @@ async function scanSource(source, since) {
         });
     } catch (err) {
         // journalctl might fail on systems without systemd
-        console.error(`[ERROR-MONITOR] Failed to scan ${source}:`, err.message);
+        log.error(`[ERROR-MONITOR] Failed to scan ${source}:`, err.message);
         return [];
     }
 }
@@ -231,7 +232,7 @@ async function runErrorScan(forceReport = false) {
     if (channels.includes('email')) {
         const result = await sendViaEmail(subject, plainText, htmlReport);
         if (result.success) sent = true;
-        else console.error('[ERROR-MONITOR] Email send failed:', result.error);
+        else log.error('[ERROR-MONITOR] Email send failed:', result.error);
     }
     if (channels.includes('telegram')) {
         const telegramText = totalNew > 0
@@ -239,11 +240,11 @@ async function runErrorScan(forceReport = false) {
             : `*HomePiNAS*: No errors found on ${hostname}. Test scan complete.`;
         const result = await sendViaTelegram(telegramText);
         if (result.success) sent = true;
-        else console.error('[ERROR-MONITOR] Telegram send failed:', result.error);
+        else log.error('[ERROR-MONITOR] Telegram send failed:', result.error);
     }
 
     if (sent) {
-        console.log(`[ERROR-MONITOR] Report sent: ${totalNew} errors via ${channels.join(', ')}`);
+        log.info(`[ERROR-MONITOR] Report sent: ${totalNew} errors via ${channels.join(', ')}`);
     }
 
     return { errorsFound: totalNew, sent };
@@ -259,18 +260,18 @@ function startErrorMonitor() {
     const config = data.notifications?.errorReporting;
 
     if (!config?.enabled) {
-        console.log('[ERROR-MONITOR] Disabled or not configured');
+        log.info('[ERROR-MONITOR] Disabled or not configured');
         return;
     }
 
     const interval = INTERVALS[config.frequency] || INTERVALS.immediate;
-    console.log(`[ERROR-MONITOR] Started (frequency: ${config.frequency}, interval: ${interval / 60000} min)`);
+    log.info(`[ERROR-MONITOR] Started (frequency: ${config.frequency}, interval: ${interval / 60000} min)`);
 
     monitorTimer = setInterval(async () => {
         try {
             await runErrorScan();
         } catch (err) {
-            console.error('[ERROR-MONITOR] Scan error:', err.message);
+            log.error('[ERROR-MONITOR] Scan error:', err.message);
         }
     }, interval);
 }

@@ -5,6 +5,7 @@
  * Uses journalctl for systemd-managed logs and direct file reading for others.
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const { execFile } = require('child_process');
@@ -126,7 +127,7 @@ router.get('/system', async (req, res) => {
       source: 'journalctl (system)'
     });
   } catch (error) {
-    console.error('Error reading system logs:', error);
+    log.error('Error reading system logs:', error);
     res.status(500).json({ success: false, error: `Failed to read system logs: ${error.message}` });
   }
 });
@@ -159,7 +160,7 @@ router.get('/app', async (req, res) => {
       source: 'homepinas.service'
     });
   } catch (error) {
-    console.error('Error reading app logs:', error);
+    log.error('Error reading app logs:', error);
     res.status(500).json({ success: false, error: `Failed to read application logs: ${error.message}` });
   }
 });
@@ -192,7 +193,7 @@ router.get('/auth', async (req, res) => {
       source: 'ssh.service'
     });
   } catch (error) {
-    console.error('Error reading auth logs:', error);
+    log.error('Error reading auth logs:', error);
     res.status(500).json({ success: false, error: `Failed to read auth logs: ${error.message}` });
   }
 });
@@ -225,7 +226,7 @@ router.get('/docker', async (req, res) => {
       source: 'docker.service'
     });
   } catch (error) {
-    console.error('Error reading Docker logs:', error);
+    log.error('Error reading Docker logs:', error);
     res.status(500).json({ success: false, error: `Failed to read Docker logs: ${error.message}` });
   }
 });
@@ -264,7 +265,7 @@ router.get('/samba', async (req, res) => {
       throw fileError;
     }
   } catch (error) {
-    console.error('Error reading Samba logs:', error);
+    log.error('Error reading Samba logs:', error);
     res.status(500).json({ success: false, error: `Failed to read Samba logs: ${error.message}` });
   }
 });
@@ -307,7 +308,7 @@ router.get('/files', async (req, res) => {
 
     res.json({ success: true, files: files, directory: logDir });
   } catch (error) {
-    console.error('Error listing log files:', error);
+    log.error('Error listing log files:', error);
     res.status(500).json({ success: false, error: `Failed to list log files: ${error.message}` });
   }
 });
@@ -372,7 +373,7 @@ router.get('/file', async (req, res) => {
       throw fileError;
     }
   } catch (error) {
-    console.error('Error reading log file:', error);
+    log.error('Error reading log file:', error);
     res.status(500).json({ success: false, error: `Failed to read log file: ${error.message}` });
   }
 });

@@ -3,6 +3,7 @@
  * Supports 40+ cloud services: Google Drive, Dropbox, OneDrive, S3, etc.
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const { execFileSync, execFile, spawn } = require('child_process');
@@ -337,7 +338,7 @@ function loadTransferHistory() {
             return JSON.parse(fs.readFileSync(historyPath, 'utf8'));
         }
     } catch (e) {
-        console.error('Error loading transfer history:', e);
+        log.error('Error loading transfer history:', e);
     }
     return [];
 }
@@ -352,7 +353,7 @@ function saveTransferHistory(history) {
         const trimmed = history.slice(-100);
         fs.writeFileSync(historyPath, JSON.stringify(trimmed, null, 2));
     } catch (e) {
-        console.error('Error saving transfer history:', e);
+        log.error('Error saving transfer history:', e);
     }
 }
 
@@ -541,7 +542,7 @@ function loadScheduledSyncs() {
             return JSON.parse(fs.readFileSync(schedulePath, 'utf8'));
         }
     } catch (e) {
-        console.error('Error loading scheduled syncs:', e);
+        log.error('Error loading scheduled syncs:', e);
     }
     return [];
 }
@@ -554,7 +555,7 @@ function saveScheduledSyncs(syncs) {
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(schedulePath, JSON.stringify(syncs, null, 2));
     } catch (e) {
-        console.error('Error saving scheduled syncs:', e);
+        log.error('Error saving scheduled syncs:', e);
     }
 }
 
@@ -759,7 +760,7 @@ function getProviderFields(provider) {
 // POST /install - Install rclone
 router.post('/install', requireAuth, async (req, res) => {
     try {
-        console.log('Starting rclone installation...');
+        log.info('Starting rclone installation...');
 
         // Detect architecture
         const arch = execFileSync('uname', ['-m'], { encoding: 'utf8' }).trim();
@@ -772,13 +773,13 @@ router.post('/install', requireAuth, async (req, res) => {
             return res.status(500).json({ error: 'Unsupported architecture' });
         }
 
-        console.log(`Detected architecture: ${arch} -> rclone arch: ${rcloneArch}`);
+        log.info(`Detected architecture: ${arch} -> rclone arch: ${rcloneArch}`);
 
         const tmpDir = `/mnt/storage/.tmp/rclone-install-${crypto.randomBytes(8).toString('hex')}`;
         fs.mkdirSync(tmpDir, { recursive: true });
 
         const downloadUrl = `https://downloads.rclone.org/rclone-current-linux-${rcloneArch}.zip`;
-        console.log(`Downloading from: ${downloadUrl}`);
+        log.info(`Downloading from: ${downloadUrl}`);
 
         execFileSync('curl', ['-fsSL', downloadUrl, '-o', path.join(tmpDir, 'rclone.zip')], {
             encoding: 'utf8',
@@ -801,7 +802,7 @@ router.post('/install', requireAuth, async (req, res) => {
         fs.rmSync(tmpDir, { recursive: true, force: true });
 
         const version = getRcloneVersion();
-        console.log(`rclone installed: ${version}`);
+        log.info(`rclone installed: ${version}`);
 
         if (version) {
             res.json({ success: true, version });
@@ -809,7 +810,7 @@ router.post('/install', requireAuth, async (req, res) => {
             throw new Error('Installation completed but rclone not found');
         }
     } catch (e) {
-        console.error('rclone install error:', e.message);
+        log.error('rclone install error:', e.message);
         res.status(500).json({ error: 'Failed to install rclone' });
     }
 });
@@ -818,7 +819,7 @@ router.post('/install', requireAuth, async (req, res) => {
 function resumeInterruptedSyncs() {
     try {
         if (!isRcloneInstalled()) {
-            console.log('[Cloud Backup] rclone not installed, skipping resume');
+            log.info('[Cloud Backup] rclone not installed, skipping resume');
             return;
         }
         
@@ -826,11 +827,11 @@ function resumeInterruptedSyncs() {
         const interrupted = history.filter(t => t.status === 'running');
         
         if (interrupted.length === 0) {
-            console.log('[Cloud Backup] No interrupted syncs to resume');
+            log.info('[Cloud Backup] No interrupted syncs to resume');
             return;
         }
         
-        console.log(`[Cloud Backup] Resuming ${interrupted.length} interrupted sync(s)...`);
+        log.info(`[Cloud Backup] Resuming ${interrupted.length} interrupted sync(s)...`);
         
         interrupted.forEach(job => {
             const { source, dest, mode, id: oldId } = job;
@@ -862,7 +863,7 @@ function resumeInterruptedSyncs() {
                 resumedFrom: oldId
             });
 
-            console.log(`[Cloud Backup] Resuming: ${source} → ${dest} (job ${jobId})`);
+            log.info(`[Cloud Backup] Resuming: ${source} → ${dest} (job ${jobId})`);
             const logFd = fs.openSync(logFile, 'w');
             const child = spawn('rclone', args, {
                 stdio: ['ignore', logFd, logFd],
@@ -881,13 +882,13 @@ function resumeInterruptedSyncs() {
                     if (code !== 0) h[idx].error = `Exit code ${code}`;
                     saveTransferHistory(h);
                 }
-                console.log(`[Cloud Backup] Sync ${jobId} ${status}`);
+                log.info(`[Cloud Backup] Sync ${jobId} ${status}`);
             });
         });
         
         saveTransferHistory(history);
     } catch (e) {
-        console.error('[Cloud Backup] Error resuming syncs:', e.message);
+        log.error('[Cloud Backup] Error resuming syncs:', e.message);
     }
 }
 

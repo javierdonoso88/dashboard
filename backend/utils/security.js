@@ -5,6 +5,7 @@
  * Security logging and safe command execution
  */
 
+const log = require('./logger');
 const { execFile } = require('child_process');
 const util = require('util');
 const execFileAsync = util.promisify(execFile);
@@ -24,7 +25,7 @@ function logSecurityEvent(event, user, ipOrMeta) {
         delete meta.ip;
     }
     const metaStr = meta && Object.keys(meta).length > 0 ? ` | ${JSON.stringify(meta)}` : '';
-    console.log(`[SECURITY] ${timestamp} | ${event} | IP: ${ip} | ${JSON.stringify(user)}${metaStr}`);
+    log.info(`[SECURITY] ${timestamp} | ${event} | IP: ${ip} | ${JSON.stringify(user)}${metaStr}`);
 }
 
 /**

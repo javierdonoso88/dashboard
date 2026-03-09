@@ -3,6 +3,7 @@
  * Manage Samba shared folders through the dashboard
  */
 
+const log = require('../utils/logger');
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');
@@ -261,7 +262,7 @@ router.get('/shares', requireAdmin, (req, res) => {
 
     res.json({ shares: result, count: result.length });
   } catch (err) {
-    console.error('List shares error:', err.message);
+    log.error('List shares error:', err.message);
     res.status(500).json({ error: 'Failed to read Samba configuration' });
   }
 });
@@ -332,7 +333,7 @@ router.post('/shares', requireAdmin, async (req, res) => {
       share: shareConfig,
     });
   } catch (err) {
-    console.error('Create share error:', err.message);
+    log.error('Create share error:', err.message);
     res.status(500).json({ error: 'Failed to create share' });
   }
 });
@@ -405,7 +406,7 @@ router.put('/shares/:name', requireAdmin, async (req, res) => {
       share: shareConfig,
     });
   } catch (err) {
-    console.error('Update share error:', err.message);
+    log.error('Update share error:', err.message);
     res.status(500).json({ error: 'Failed to update share' });
   }
 });
@@ -440,7 +441,7 @@ router.delete('/shares/:name', requireAdmin, async (req, res) => {
 
     res.json({ message: `Share '${shareName}' deleted successfully` });
   } catch (err) {
-    console.error('Delete share error:', err.message);
+    log.error('Delete share error:', err.message);
     res.status(500).json({ error: 'Failed to delete share' });
   }
 });
@@ -504,7 +505,7 @@ router.get('/status', requireAdmin, async (req, res) => {
           }
         }
       } catch (innerErr) {
-        console.warn('Could not get smbstatus:', innerErr.message);
+        log.warn('Could not get smbstatus:', innerErr.message);
       }
     }
 
@@ -515,7 +516,7 @@ router.get('/status', requireAdmin, async (req, res) => {
       connectedCount: connectedUsers.length,
     });
   } catch (err) {
-    console.error('Samba status error:', err.message);
+    log.error('Samba status error:', err.message);
     res.status(500).json({ error: 'Failed to get Samba status' });
   }
 });
@@ -547,7 +548,7 @@ router.post('/restart', requireAdmin, async (req, res) => {
       running: status === 'active',
     });
   } catch (err) {
-    console.error('Samba restart error:', err.message);
+    log.error('Samba restart error:', err.message);
     res.status(500).json({ error: 'Failed to restart Samba services' });
   }
 });
