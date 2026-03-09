@@ -552,6 +552,16 @@ router.get('/disks', async (req, res) => {
                     }
                 } catch (e) {}
 
+                // Get filesystem type from first partition via blkid
+                let fstype = '';
+                try {
+                    const partition = dev.name.includes('nvme') ? `${dev.name}p1` : `${dev.name}1`;
+                    fstype = execFileSync('sudo', ['blkid', '-s', 'TYPE', '-o', 'value', `/dev/${partition}`],
+                        { encoding: 'utf8', timeout: 5000 }).trim();
+                } catch (e) {
+                    // No partition or blkid failed — leave empty
+                }
+
                 return {
                     id: dev.name,
                     device: dev.device,
@@ -560,7 +570,8 @@ router.get('/disks', async (req, res) => {
                     model: finalModel,
                     serial: serial || 'N/A',
                     temp: temp,
-                    usage
+                    usage,
+                    fstype
                 };
             });
         res.json(disks);

@@ -92,9 +92,14 @@ router.post('/pool/configure', requireAuthOrSetup, async (req, res) => {
                     }
                     const label = `${disk.role}_${safeDiskId}`.substring(0, 16); // ext4/xfs label max 16 chars
                     
-                    // Format with selected filesystem
-                    if (filesystem === 'xfs') {
+                    // Format with selected filesystem (validated whitelist)
+                    const SUPPORTED_FS = ['ext4', 'xfs', 'btrfs'];
+                    const safeFs = SUPPORTED_FS.includes(filesystem) ? filesystem : 'ext4';
+
+                    if (safeFs === 'xfs') {
                         execFileSync('sudo', ['mkfs.xfs', '-f', '-L', label, `/dev/${safePartition}`], { encoding: 'utf8', timeout: 300000 });
+                    } else if (safeFs === 'btrfs') {
+                        execFileSync('sudo', ['mkfs.btrfs', '-f', '-L', label, `/dev/${safePartition}`], { encoding: 'utf8', timeout: 300000 });
                     } else {
                         execFileSync('sudo', ['mkfs.ext4', '-F', '-L', label, `/dev/${safePartition}`], { encoding: 'utf8', timeout: 300000 });
                     }
@@ -269,7 +274,7 @@ exclude .fseventsd
             try {
                 const detected = execFileSync('sudo', ['blkid', '-s', 'TYPE', '-o', 'value', `/dev/${partition}`],
                     { encoding: 'utf8', timeout: 10000 }).trim();
-                if (detected === 'xfs' || detected === 'ext4') fsType = detected;
+                if (['ext4', 'xfs', 'btrfs'].includes(detected)) fsType = detected;
             } catch (e) {}
 
             try {

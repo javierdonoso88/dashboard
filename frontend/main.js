@@ -1882,11 +1882,11 @@ async function createStoragePool() {
     });
     
     if (wizardState.selectedParityDisk) {
-        selections.push({ id: wizardState.selectedParityDisk, role: 'parity', format: true });
+        selections.push({ id: wizardState.selectedParityDisk, role: 'parity', format: true, filesystem: selectedFilesystem });
     }
     
     if (wizardState.selectedCacheDisk) {
-        selections.push({ id: wizardState.selectedCacheDisk, role: 'cache', format: true });
+        selections.push({ id: wizardState.selectedCacheDisk, role: 'cache', format: true, filesystem: selectedFilesystem });
     }
     
     const tasks = ['format', 'mount', 'snapraid', 'mergerfs', 'fstab', 'sync'];
@@ -2138,6 +2138,8 @@ const saveStorageBtn = document.getElementById('save-storage-btn');
 if (saveStorageBtn) {
     saveStorageBtn.addEventListener('click', async () => {
         const selections = [];
+        // Read filesystem selection (same selector the wizard uses)
+        const selectedFs = document.querySelector('input[name="wizard-filesystem"]:checked')?.value || 'ext4';
         document.querySelectorAll('.role-selector').forEach(sel => {
             const diskId = sel.dataset.disk;
             const activeBtn = sel.querySelector('.role-btn.active');
@@ -2146,7 +2148,8 @@ if (saveStorageBtn) {
                 selections.push({
                     id: diskId,
                     role,
-                    format: true
+                    format: true,
+                    filesystem: selectedFs
                 });
             }
         });
@@ -3112,7 +3115,7 @@ async function renderStorageDashboard() {
                     <span class="total">${role.toUpperCase()}</span>
                 </div>
                 <div class="mount-type">
-                    <span class="mount-type-badge ext4">ext4</span>
+                    <span class="mount-type-badge ${escapeHtml(disk.fstype || 'ext4')}">${escapeHtml(disk.fstype || 'ext4')}</span>
                 </div>
             `;
             mountsGrid.appendChild(diskRow);
