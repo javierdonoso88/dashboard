@@ -24,6 +24,7 @@ const { errorHandler } = require('./middleware/error-handler');
 // Import middleware
 const { generalLimiter } = require('./middleware/rateLimit');
 const { csrfProtection } = require('./middleware/csrf');
+const { noCache } = require('./middleware/no-cache');
 
 // Import routes
 const systemRoutes = require('./routes/system');
@@ -274,6 +275,9 @@ spaRoutes.forEach(route => {
 // =============================================================================
 // API ROUTES
 // =============================================================================
+
+// Prevent browsers/proxies from caching API responses (BUG-01 fix)
+app.use('/api', noCache);
 
 // System routes (stats, fans, disks, status)
 app.use('/api/system', systemRoutes);

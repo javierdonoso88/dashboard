@@ -3,7 +3,7 @@
  * Provides offline caching and PWA functionality
  */
 
-const CACHE_NAME = 'homepinas-v2.2.0';
+const CACHE_NAME = 'homepinas-v2.2.1';
 const RUNTIME_CACHE = 'homepinas-runtime';
 
 // Static assets to cache on install
@@ -106,9 +106,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // API requests - network first, then offline fallback
+  // API requests - always go to network, never serve from cache (BUG-01 fix)
   if (url.pathname.startsWith('/api/')) {
-    event.respondWith(networkFirst(request));
+    event.respondWith(
+      fetch(request).catch(() => {
+        // Offline fallback: return error JSON so the UI can handle it
+        return new Response(
+          JSON.stringify({ error: 'Network unavailable' }),
+          { status: 503, headers: { 'Content-Type': 'application/json' } }
+        );
+      })
+    );
     return;
   }
 

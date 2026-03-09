@@ -236,7 +236,7 @@ async function authFetch(url, options = {}) {
         headers['X-CSRF-Token'] = state.csrfToken;
     }
 
-    const response = await fetch(url, { ...options, headers });
+    const response = await fetch(url, { ...options, headers, cache: 'no-store' });
 
     // Handle CSRF errors (token expired after server restart)
     if (response.status === 403) {
