@@ -367,7 +367,7 @@ if (fs.existsSync(SSL_CERT_PATH) && fs.existsSync(SSL_KEY_PATH)) {
         };
         httpsServer = https.createServer(sslOptions, app);
         httpsServer.listen(HTTPS_PORT, '0.0.0.0', () => {
-            log.info('[HTTPS] Secure server running on https://0.0.0.0:${HTTPS_PORT}`);
+            log.info(`[HTTPS] Secure server running on https://0.0.0.0:${HTTPS_PORT}`);
         });
     } catch (e) {
         log.error('[HTTPS] Failed to start:', e.message);
@@ -386,7 +386,7 @@ if (httpsServer) {
         const httpsUrl = `https://${host}${portSuffix}${req.url}`;
         res.redirect(302, httpsUrl);
     });
-    log.info('[HTTP]  Will redirect all traffic to HTTPS`);
+    log.info('[HTTP]  Will redirect all traffic to HTTPS');
 } else {
     // No HTTPS, serve app on HTTP
     httpApp = app;
@@ -394,7 +394,7 @@ if (httpsServer) {
 
 const httpServer = http.createServer(httpApp);
 httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
-    log.info('[HTTP]  Server running on http://0.0.0.0:${HTTP_PORT}`);
+    log.info(`[HTTP]  Server running on http://0.0.0.0:${HTTP_PORT}`);
     if (httpsServer) {
         log.info('[HTTP]  → Redirecting to HTTPS on port ' + HTTPS_PORT);
     } else {
