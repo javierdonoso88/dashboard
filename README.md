@@ -1,8 +1,8 @@
-# HomePiNAS v2.13.3
+# HomePiNAS v2.13.4
 
 Premium NAS Dashboard for Raspberry Pi CM5 - Homelabs.club Edition
 
-![HomePiNAS Dashboard](https://img.shields.io/badge/version-2.13.3-brightgreen)
+![HomePiNAS Dashboard](https://img.shields.io/badge/version-2.13.4-brightgreen)
 ![PWA Ready](https://img.shields.io/badge/PWA-Ready-blueviolet)
 ![Mobile Friendly](https://img.shields.io/badge/Mobile-Friendly-blue)
 
@@ -67,13 +67,14 @@ Premium NAS Dashboard for Raspberry Pi CM5 - Homelabs.club Edition
 - HTTPS with self-signed certificates
 - 2FA (TOTP) support
 
-## 🆕 What's New in v2.13.3
+## 🆕 What's New in v2.13.4
 
 ### Agente Windows - Active Backup
-- **🔍 Detección segura** — Firma oculta `hnv2` para identificar HomePiNAS sin depender del nombre del host
-- **🔐 Credenciales obligatorias** — Usuario y contraseña requeridos en la conexión manual
-- **🔌 Puerto corregido** — Puerto por defecto corregido de 3001 a 443
-- **🗑️ mDNS eliminado** — Sin dependencias de nombre de host ni hostnames hardcodeados
+- **🔍 Detección segura** — Firma oculta `hnv2` para identificar HomePiNAS sin escanear por nombre
+- **✅ Sin credenciales** — El agente se registra solo; el admin aprueba desde el dashboard
+- **🔌 Puerto corregido** — Puerto por defecto corregido a 443
+- **🚫 Puerto 3000 eliminado** — Ya no se escanea el puerto 3000 obsoleto
+- **📊 Fix disponible pool** — Espacio disponible calculado como total-usado (sin confusión por reserva ext4)
 
 ## 🆕 What's New in v2.13.0
 
