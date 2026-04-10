@@ -3016,16 +3016,60 @@ async function renderDashboard(quickRefresh) {
 
             if (dockerWidget && Array.isArray(containers) && containers.length > 0) {
                 dockerWidget.style.display = 'block';
-                const html = containers.slice(0, 8).map(c => {
-                    const stateColor = c.status === 'running' ? 'var(--success)' : 'var(--danger)';
-                    const name = (c.Names && c.Names[0] || c.name || 'unknown').replace(/^\//, '');
-                    const image = c.Image || '';
-                    const shortImage = image.split(':')[0].split('/').pop();
-                    return `<div class="net-row">
-                        <span><span style="color:${stateColor};">●</span> ${escapeHtml(name)}</span>
-                        <span style="font-size:12px;color:var(--text-dim);">${escapeHtml(shortImage)}</span>
-                    </div>`;
-                }).join('');
+                const iconAliases = {
+                    'plex-media-server': 'plex',
+                    'plex': 'plex',
+                    'qbittorrent': 'qbittorrent',
+                    'rsync-server': 'rsync',
+                    'rsync': 'rsync',
+                    'seerr': 'jellyseerr',
+                    'jellyseerr': 'jellyseerr',
+                    'overseerr': 'overseerr',
+                    'sonarr': 'sonarr',
+                    'radarr': 'radarr',
+                    'prowlarr': 'prowlarr',
+                    'bazarr': 'bazarr',
+                    'lidarr': 'lidarr',
+                    'readarr': 'readarr',
+                    'jellyfin': 'jellyfin',
+                    'emby': 'emby',
+                    'portainer': 'portainer',
+                    'nginx': 'nginx',
+                    'traefik': 'traefik',
+                    'nextcloud': 'nextcloud',
+                    'heimdall': 'heimdall',
+                    'pihole': 'pi-hole',
+                    'homeassistant': 'home-assistant',
+                    'home-assistant': 'home-assistant',
+                    'grafana': 'grafana',
+                    'influxdb': 'influxdb',
+                    'vaultwarden': 'vaultwarden',
+                    'bitwarden': 'vaultwarden',
+                };
+                const html = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">` +
+                    containers.slice(0, 8).map(c => {
+                        const isRunning = c.status === 'running';
+                        const name = (c.Names && c.Names[0] || c.name || 'unknown').replace(/^\//, '');
+                        const nameLower = name.toLowerCase();
+                        const iconKey = iconAliases[nameLower] || nameLower.replace(/-server$/, '').replace(/_/g, '-');
+                        const iconUrl = `https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/${iconKey}.png`;
+                        const fallbackIcon = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><text y="20" font-size="20">🐳</text></svg>')}`;
+                        const statusColor = isRunning ? '#22c55e' : '#ef4444';
+                        const statusIcon = isRunning ? '▶' : '■';
+                        const statusText = isRunning ? t('docker.started', 'iniciado') : t('docker.stopped_short', 'detenido');
+                        return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(255,255,255,0.03);border-radius:10px;">
+                            <img src="${iconUrl}"
+                                 onerror="this.onerror=null;this.src='${fallbackIcon}'"
+                                 style="width:42px;height:42px;border-radius:8px;object-fit:contain;flex-shrink:0;">
+                            <div style="min-width:0;">
+                                <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(name)}</div>
+                                <div style="font-size:11px;color:${statusColor};margin-top:3px;display:flex;align-items:center;gap:4px;">
+                                    <span style="font-size:9px;">${statusIcon}</span>${escapeHtml(statusText)}
+                                </div>
+                            </div>
+                        </div>`;
+                    }).join('') +
+                `</div>`;
                 if (dockerContent) dockerContent.innerHTML = html;
             }
         }
