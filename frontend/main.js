@@ -3608,7 +3608,7 @@ async function renderStorageDashboard() {
             const policyHtml = cacheStatus.policy ? `
                 <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--card-border, rgba(255,255,255,0.1));">
                     <span style="font-size: 0.8rem; padding: 4px 10px; background: rgba(99,102,241,0.15); border-radius: 6px; color: var(--primary, #6366f1);">
-                        📝 Escritura: <strong>${escapeHtml(cacheStatus.policy.createPolicy || '?')}</strong>
+                        📝 Escritura: <strong>${escapeHtml(({'ff':'Primer disco libre','mfs':'Más espacio libre','lfs':'Menos espacio libre','eplfs':'Ruta existente','epmfs':'Ruta existente + más libre','pfrd':'Aleatorio proporcional'}[cacheStatus.policy.createPolicy] || cacheStatus.policy.createPolicy || '?'))}</strong>
                     </span>
                     ${cacheStatus.policy.moveOnNoSpace ? '<span style="font-size: 0.8rem; padding: 4px 10px; background: rgba(16,185,129,0.15); border-radius: 6px; color: #10b981;">✅ Auto-mover si caché llena</span>' : ''}
                     ${cacheStatus.policy.minFreeSpace ? `<span style="font-size: 0.8rem; padding: 4px 10px; background: rgba(245,158,11,0.15); border-radius: 6px; color: #f59e0b;">📏 Min libre: ${escapeHtml(cacheStatus.policy.minFreeSpace)}</span>` : ''}
@@ -16844,3 +16844,57 @@ async function showFolderPermissions(folderPath) {
         showNotification(`❌ Error al cargar permisos: ${err.message}`, 'error');
     }
 }
+
+// ─── Cache file list modal ────────────────────────────────────────────────────
+window.showCacheFileList = async function() {
+    const existing = document.getElementById('cache-file-list-modal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'cache-file-list-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999;';
+    modal.innerHTML = `
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;width:min(720px,95vw);max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 20px;border-bottom:1px solid var(--border);">
+                <h3 style="margin:0;font-size:1rem;">⚡ Archivos en caché</h3>
+                <button onclick="document.getElementById('cache-file-list-modal').remove()" style="background:none;border:none;color:var(--text-dim);font-size:1.4rem;cursor:pointer;line-height:1;">×</button>
+            </div>
+            <div id="cache-file-list-body" style="overflow-y:auto;padding:16px;flex:1;font-size:0.85rem;">
+                <div style="text-align:center;color:var(--text-dim);padding:20px;">Cargando...</div>
+            </div>
+        </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+
+    try {
+        const res = await authFetch(`${API_BASE}/storage/cache/files`);
+        const data = await res.json();
+        const body = document.getElementById('cache-file-list-body');
+        if (!data.hasCache || !data.files || data.files.length === 0) {
+            body.innerHTML = '<div style="text-align:center;color:var(--text-dim);padding:20px;">No hay archivos en caché.</div>';
+            return;
+        }
+        body.innerHTML = `
+            <div style="margin-bottom:10px;color:var(--text-dim);">${data.total} archivo${data.total !== 1 ? 's' : ''} pendientes de mover al pool</div>
+            <table style="width:100%;border-collapse:collapse;">
+                <thead>
+                    <tr style="color:var(--text-dim);font-size:0.78rem;text-transform:uppercase;border-bottom:1px solid var(--border);">
+                        <th style="text-align:left;padding:6px 8px;font-weight:600;">Archivo</th>
+                        <th style="text-align:right;padding:6px 8px;font-weight:600;white-space:nowrap;">Tamaño</th>
+                        <th style="text-align:right;padding:6px 8px;font-weight:600;white-space:nowrap;">Modificado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${data.files.map(f => `
+                        <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                            <td style="padding:7px 8px;word-break:break-all;font-family:monospace;font-size:0.8rem;">${escapeHtml(f.path)}</td>
+                            <td style="padding:7px 8px;text-align:right;white-space:nowrap;color:var(--text-dim);">${escapeHtml(f.sizeFormatted)}</td>
+                            <td style="padding:7px 8px;text-align:right;white-space:nowrap;color:var(--text-dim);">${new Date(f.mtime).toLocaleString()}</td>
+                        </tr>`).join('')}
+                </tbody>
+            </table>`;
+    } catch (err) {
+        document.getElementById('cache-file-list-body').innerHTML =
+            `<div style="color:#ef4444;padding:20px;">Error al cargar: ${escapeHtml(err.message)}</div>`;
+    }
+};

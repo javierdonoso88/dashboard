@@ -181,21 +181,21 @@ router.get('/cache/status', requireAuth, async (req, res) => {
         // Get MergerFS policy info
         let mergerfsPolicy = {};
         try {
-            const mountOutput = execFileSync('mount', [], { encoding: 'utf8', timeout: 5000 });
-            const mergerfsLine = mountOutput.split('\n').find(l => l.includes('mergerfs') && l.includes(POOL_MOUNT));
-            if (mergerfsLine) {
-                const optsMatch = mergerfsLine.match(/\(([^)]+)\)/);
-                if (optsMatch) {
-                    const opts = optsMatch[1];
-                    const createMatch = opts.match(/category\.create=(\w+)/);
-                    const moveMatch = opts.match(/moveonenospc=(\w+)/);
-                    const minFreeMatch = opts.match(/minfreespace=(\S+?)(?:,|$)/);
-                    mergerfsPolicy = {
-                        createPolicy: createMatch ? createMatch[1] : 'unknown',
-                        moveOnNoSpace: moveMatch ? moveMatch[1] === 'true' : false,
-                        minFreeSpace: minFreeMatch ? minFreeMatch[1] : null
-                    };
-                }
+            // MergerFS FUSE mounts don't expose custom options via `mount` output;
+            // read from /etc/fstab directly where the full options are stored.
+            const fstab = fs.readFileSync('/etc/fstab', 'utf8');
+            const fstabLine = fstab.split('\n').find(l => l.includes('mergerfs') && l.includes(POOL_MOUNT));
+            if (fstabLine) {
+                const parts = fstabLine.trim().split(/\s+/);
+                const opts = parts[3] || '';
+                const createMatch = opts.match(/category\.create=(\w+)/);
+                const moveMatch = opts.match(/moveonenospc=(\w+)/);
+                const minFreeMatch = opts.match(/minfreespace=(\S+?)(?:,|$)/);
+                mergerfsPolicy = {
+                    createPolicy: createMatch ? createMatch[1] : 'unknown',
+                    moveOnNoSpace: moveMatch ? moveMatch[1] === 'true' : false,
+                    minFreeSpace: minFreeMatch ? minFreeMatch[1] : null
+                };
             }
         } catch (e) {}
 
@@ -205,8 +205,8 @@ router.get('/cache/status', requireAuth, async (req, res) => {
         try {
             for (const c of cacheInfo) {
                 if (!c.error) {
-                    const count = execFileSync('find', [c.mountPoint, '-type', 'f', '-maxdepth', '3'], {
-                        encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'ignore']
+                    const count = execFileSync('find', [c.mountPoint, '-type', 'f'], {
+                        encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'ignore']
                     }).trim().split('\n').filter(l => l).length;
                     cacheFileCount += count;
                 }
@@ -215,8 +215,8 @@ router.get('/cache/status', requireAuth, async (req, res) => {
             for (let i = 0; i < Math.min(dataDisks.length, 2); i++) {
                 const mountPoint = `${STORAGE_MOUNT_BASE}/disk${i + 1}`;
                 try {
-                    const count = execFileSync('find', [mountPoint, '-type', 'f', '-maxdepth', '3'], {
-                        encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'ignore']
+                    const count = execFileSync('find', [mountPoint, '-type', 'f'], {
+                        encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'ignore']
                     }).trim().split('\n').filter(l => l).length;
                     dataFileCount += count;
                 } catch (e) {}
@@ -267,5 +267,55 @@ router.get('/cache/status', requireAuth, async (req, res) => {
     }
 });
 
+
+/**
+ * GET /cache/files - List files currently sitting on the cache disk
+ */
+router.get('/cache/files', requireAuth, async (req, res) => {
+    try {
+        const data = getData();
+        const storageConfig = data.storageConfig || [];
+        const cacheDisks = storageConfig.filter(d => d.role === 'cache');
+
+        if (cacheDisks.length === 0) {
+            return res.json({ hasCache: false, files: [] });
+        }
+
+        const files = [];
+        for (let i = 0; i < cacheDisks.length; i++) {
+            const mountPoint = `${STORAGE_MOUNT_BASE}/cache${i + 1}`;
+            try {
+                // find with null-terminated output for safe parsing
+                const output = execFileSync(
+                    'find', [mountPoint, '-type', 'f', '-printf', '%P\t%s\t%T@\n'],
+                    { encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'ignore'] }
+                );
+                const lines = output.trim().split('\n').filter(l => l);
+                for (const line of lines) {
+                    const parts = line.split('\t');
+                    if (parts.length < 3) continue;
+                    const [relativePath, sizeStr, mtimeStr] = parts;
+                    files.push({
+                        path: relativePath,
+                        size: parseInt(sizeStr) || 0,
+                        sizeFormatted: formatBytes(parseInt(sizeStr) || 0),
+                        mtime: Math.floor(parseFloat(mtimeStr)) * 1000,
+                        disk: cacheDisks[i].id
+                    });
+                }
+            } catch (e) {
+                log.error('Error listing cache files:', e.message);
+            }
+        }
+
+        // Sort by newest first
+        files.sort((a, b) => b.mtime - a.mtime);
+
+        res.json({ hasCache: true, files, total: files.length });
+    } catch (e) {
+        log.error('Cache files error:', e);
+        res.status(500).json({ error: 'Failed to list cache files' });
+    }
+});
 
 module.exports = router;
